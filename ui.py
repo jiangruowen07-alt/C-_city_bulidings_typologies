@@ -657,7 +657,12 @@ class CityUI:
     def step_once(self):
         if self._batch_running:
             return
-        swapped, a1, a2, old1, old2 = self.m.step()
+        result = self.m.step()
+        swapped, a1, a2, old1, old2 = result[:5]
+        for a in (result[5] if len(result) > 5 else []):
+            itm = self.agent_item.pop(id(a), None)
+            if itm:
+                self.canvas.delete(itm)
         if self.m.stats["steps"] % 10 == 0:
             self.m.calc_total_utility()
             self.sample_chart()
@@ -723,7 +728,12 @@ class CityUI:
             return
         chunk = min(self.batch_chunk, self._batch_remaining)
         for _ in range(chunk):
-            swapped, _a1, _a2, old1, old2 = self.m.step()
+            result = self.m.step()
+            swapped, _a1, _a2, old1, old2 = result[:5]
+            for a in (result[5] if len(result) > 5 else []):
+                itm = self.agent_item.pop(id(a), None)
+                if itm:
+                    self.canvas.delete(itm)
             if swapped and self.show_view and self.view_mode == "pubpriv":
                 if old1:
                     self._batch_dirty.add(old1)
@@ -782,6 +792,7 @@ class CityUI:
         return (cx - r, cy - r, cx + r, cy + r)
 
     def rebuild_all(self):
+        self.m._remove_agents_on_attractors()
         self.canvas.delete("dyn")
         self.canvas.delete("zone")
         self.clear_reach_overlay()
@@ -799,7 +810,10 @@ class CityUI:
                 )
                 self.zone_item[(x, y)] = item
         self.canvas.itemconfig("zone", state=("normal" if self.show_view else "hidden"))
-        for k, lst in self.m.attractors.items():
+        # 吸引子重叠时保留数量较少的
+        draw_order = self.m._get_attr_draw_order()
+        for k in draw_order:
+            lst = self.m.attractors.get(k, [])
             col = self.colors.get(k, "#ffffff")
             for (x, y) in lst:
                 item = self.canvas.create_rectangle(*self.cell_rect(x, y), fill=col, outline="", tags="dyn")
@@ -922,7 +936,11 @@ class CityUI:
                 if itm:
                     self.canvas.delete(itm)
                 self.m.agents.remove(a)
-        self.m.rebuild_attr_distance_fields()
+        removed = self.m.rebuild_attr_distance_fields()
+        for a in removed:
+            itm = self.agent_item.pop(id(a), None)
+            if itm:
+                self.canvas.delete(itm)
         self.m.update_grid()
         if self.show_view:
             if self.view_mode == "pubpriv":
@@ -942,7 +960,12 @@ class CityUI:
             speed = int(self.speed_var.get())
             swapped_agents = []
             for _ in range(speed):
-                swapped, a1, a2, old1, old2 = self.m.step()
+                result = self.m.step()
+                swapped, a1, a2, old1, old2 = result[:5]
+                for a in (result[5] if len(result) > 5 else []):
+                    itm = self.agent_item.pop(id(a), None)
+                    if itm:
+                        self.canvas.delete(itm)
                 if swapped:
                     swapped_agents.append((a1, a2, old1, old2))
             if self.m.stats["steps"] % 10 == 0:
