@@ -11,6 +11,7 @@ from config import (
     PP_AGENT_RANK,
     PP_ATTR_RANK,
     LAYOUT_NAMES,
+    ROAD_TOPOLOGY_NAMES,
     SWAP_RULE_OPTIONS,
     TOOLS,
 )
@@ -195,6 +196,21 @@ class CityUI:
             self.layout_buttons[name] = b
         lf.grid_columnconfigure(0, weight=1)
         lf.grid_columnconfigure(1, weight=1)
+
+        tk.Label(panel, text="Road Topology", fg="#888", bg=UI_COLORS["panel_bg"],
+                 font=("Consolas", 9, "bold")).pack(anchor="w")
+        rtf = tk.Frame(panel, bg=UI_COLORS["panel_bg"])
+        rtf.pack(fill="x", pady=(6, 12))
+        self.road_topology_buttons = {}
+        for idx, name in enumerate(ROAD_TOPOLOGY_NAMES):
+            b = tk.Button(rtf, text=name.upper(), command=lambda n=name: self.set_road_topology(n),
+                          bg="#ffffff" if name == "Linear" else UI_COLORS["panel_bg"],
+                          fg="#000" if name == "Linear" else "white", relief="groove")
+            r, c = divmod(idx, 2)
+            b.grid(row=r, column=c, sticky="ew", padx=2, pady=2)
+            self.road_topology_buttons[name] = b
+        rtf.grid_columnconfigure(0, weight=1)
+        rtf.grid_columnconfigure(1, weight=1)
 
         tk.Label(panel, text="Infrastructure Tools", fg="#888", bg=UI_COLORS["panel_bg"],
                  font=("Consolas", 9, "bold")).pack(anchor="w")
@@ -598,6 +614,7 @@ class CityUI:
 
     def boot(self):
         self.set_layout_buttons("Grid")
+        self.set_road_topology_buttons("Linear")
         self.set_tool("None")
         self.m.utility_bias = 0.0
         self.m.apply_layout("Grid")
@@ -627,12 +644,29 @@ class CityUI:
         for k, b in self.layout_buttons.items():
             b.config(bg="#ffffff" if k == name else UI_COLORS["panel_bg"], fg="#000" if k == name else "white")
 
+    def set_road_topology_buttons(self, name):
+        for k, b in self.road_topology_buttons.items():
+            b.config(bg="#ffffff" if k == name else UI_COLORS["panel_bg"], fg="#000" if k == name else "white")
+
     def set_layout(self, name):
         if self._batch_running:
             return
         self.set_layout_buttons(name)
         self.m.utility_bias = 0.0
         self.m.apply_layout(name)
+        self.m.calc_total_utility()
+        self.reset_target_int = int(self.m.stats["totalUtility"])
+        self.util_history.clear()
+        self.rebuild_all()
+
+    def set_road_topology(self, name):
+        if self._batch_running:
+            return
+        self.set_road_topology_buttons(name)
+        self.m.utility_bias = 0.0
+        self.m.apply_road_topology(name)
+        self.m.rebuild_attr_distance_fields()
+        self.m.reset(target_int=self.reset_target_int)
         self.m.calc_total_utility()
         self.reset_target_int = int(self.m.stats["totalUtility"])
         self.util_history.clear()

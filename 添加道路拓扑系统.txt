@@ -1,0 +1,73 @@
+================================================================================
+添加道路拓扑系统 - 改动记录
+================================================================================
+
+一、概述
+--------------------------------
+在 Urban Typologies（城市布局）基础上，新增独立的道路拓扑预设控制区。
+道路拓扑仅替换道路(R)吸引子，其它吸引子（P、T、S、H、W、G）由城市布局决定。
+参考城市布局的引入方式，以最少修改实现。
+
+
+二、config.py 修改
+--------------------------------
+1. 新增常量（约第 93-94 行）：
+
+   ROAD_TOPOLOGY_NAMES = ["Linear", "Parallel", "Cross", "T-Junction", "Loop"]
+
+2. 五种道路拓扑说明：
+   - Linear：单条道路（水平中心线）
+   - Parallel：三条平行水平道路
+   - Cross：十字交叉（水平 + 垂直）
+   - T-Junction：T 形路口（水平顶边 + 向下竖线）
+   - Loop：矩形环（中心区域四周）
+
+
+三、model.py 修改
+--------------------------------
+1. 导入（约第 14 行）：
+   - 在 from config import 中增加 ROAD_TOPOLOGY_NAMES
+
+2. CityModel.__init__（约第 48 行）：
+   - 新增 self.road_topology = ROAD_TOPOLOGY_NAMES[0]  # 默认 Linear
+
+3. apply_layout 末尾（约第 367 行）：
+   - 在 _ensure_all_attractors_present 之前增加：
+     self.apply_road_topology(self.road_topology)
+
+4. 新增方法 apply_road_topology(self, typ: str)（约第 372-416 行）：
+   - 仅替换道路(R)吸引子，其它吸引子保持不变
+   - Linear：y=cy 整行
+   - Parallel：y = cy±h/6, cy 三条线
+   - Cross：y=cy 水平线 + x=cx 垂直线
+   - T-Junction：y=cy 水平线 + (cx,cy) 向下竖线
+   - Loop：以中心为基准的矩形四边，margin = min(w,h)//6
+
+
+四、ui.py 修改
+--------------------------------
+1. 导入（约第 14 行）：
+   - 在 from config import 中增加 ROAD_TOPOLOGY_NAMES
+
+2. build_layout 中，Urban Typologies 与 Infrastructure Tools 之间（约第 200-213 行）：
+   - 新增 "Road Topology" 标签
+   - 新增 rtf 框架及 5 个按钮（road_topology_buttons）
+   - 布局与 Urban Typologies 一致，2 列网格
+
+3. 新增 set_road_topology_buttons(self, name)（约第 647-649 行）：
+   - 高亮当前选中的道路拓扑按钮
+
+4. 新增 set_road_topology(self, name)（约第 662-673 行）：
+   - 调用 apply_road_topology、rebuild_attr_distance_fields、reset
+   - 保持 reset_target_int、util_history、rebuild_all 逻辑
+
+5. boot 中（约第 619 行）：
+   - 增加 self.set_road_topology_buttons("Linear")
+   - 启动时默认选中 Linear
+
+
+五、交互逻辑
+--------------------------------
+- 切换城市布局：apply_layout 内部会调用 apply_road_topology，保留当前道路拓扑
+- 切换道路拓扑：仅替换 R 吸引子，其它吸引子不变，重新生成 Agent
+- 道路拓扑与城市布局可独立选择，组合使用

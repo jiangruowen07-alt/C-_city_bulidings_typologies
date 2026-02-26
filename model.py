@@ -11,6 +11,7 @@ from config import (
     TYPE_LABELS,
     DEFAULT_PREF_ATTR,
     DEFAULT_PREF_AGENT,
+    ROAD_TOPOLOGY_NAMES,
 )
 
 
@@ -45,6 +46,7 @@ class CityModel:
         }
         self.utility_bias = 0.0
         self.swap_mode = "pareto"
+        self.road_topology = ROAD_TOPOLOGY_NAMES[0]  # default: Linear
 
         self.reach_agent_by_type = {t: int(reach) for t in self.type_labels}
         self.reach_attr_by_type = {t: int(reach) for t in self.type_labels}
@@ -362,9 +364,56 @@ class CityModel:
             self.attractors["W"] = [(0, j) for j in range(self.h)]
             self.attractors["G"] = [(cx, cy), (min(self.w - 1, cx + 12), cy)]
 
+        self.apply_road_topology(self.road_topology)
         self._ensure_all_attractors_present()
         self.rebuild_attr_distance_fields()
         self.reset()
+
+    def apply_road_topology(self, typ: str):
+        """仅替换道路(R)吸引子，其它吸引子保持不变。"""
+        if typ not in ROAD_TOPOLOGY_NAMES:
+            return
+        self.road_topology = typ
+        cx, cy = self.w // 2, self.h // 2
+        self.attractors["R"] = []
+
+        if typ == "Linear":
+            # Single road: horizontal center line
+            for i in range(self.w):
+                self.attractors["R"].append((i, cy))
+
+        elif typ == "Parallel":
+            # 3 parallel horizontal roads
+            for i in range(self.w):
+                for yy in (cy - self.h // 6, cy, cy + self.h // 6):
+                    if 0 <= yy < self.h:
+                        self.attractors["R"].append((i, yy))
+
+        elif typ == "Cross":
+            # Horizontal + vertical crossing at center
+            for i in range(self.w):
+                self.attractors["R"].append((i, cy))
+            for j in range(self.h):
+                self.attractors["R"].append((cx, j))
+
+        elif typ == "T-Junction":
+            # Horizontal top bar + vertical stem down
+            for i in range(self.w):
+                self.attractors["R"].append((i, cy))
+            for j in range(cy, self.h):
+                self.attractors["R"].append((cx, j))
+
+        elif typ == "Loop":
+            # Rectangular loop around center
+            margin = max(2, min(self.w, self.h) // 6)
+            x1, x2 = max(0, cx - margin), min(self.w - 1, cx + margin)
+            y1, y2 = max(0, cy - margin), min(self.h - 1, cy + margin)
+            for i in range(x1, x2 + 1):
+                self.attractors["R"].append((i, y1))
+                self.attractors["R"].append((i, y2))
+            for j in range(y1 + 1, y2):
+                self.attractors["R"].append((x1, j))
+                self.attractors["R"].append((x2, j))
 
     def _ensure_all_attractors_present(self):
         """确保每种吸引子至少有一个有效位置，避免部分城市布局吸引子不全。"""

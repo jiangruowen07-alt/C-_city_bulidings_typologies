@@ -90,6 +90,9 @@ UI_COLORS = {
 # -------------------- LAYOUT NAMES --------------------
 LAYOUT_NAMES = ["Grid", "Radial", "Organic", "Linear", "Polycentric", "Superblock", "Hybrid"]
 
+# -------------------- ROAD TOPOLOGY PRESETS --------------------
+ROAD_TOPOLOGY_NAMES = ["Linear", "Parallel", "Cross", "T-Junction", "Loop"]
+
 # -------------------- SWAP RULE OPTIONS --------------------
 SWAP_RULE_OPTIONS = [
     ("PARETO (no one worse)", "pareto"),
