@@ -46,7 +46,8 @@ class CityModel:
         }
         self.utility_bias = 0.0
         self.swap_mode = "pareto"
-        self.road_topology = ROAD_TOPOLOGY_NAMES[0]  # default: Linear
+        self.current_layout = "Grid"
+        self.road_topology = ROAD_TOPOLOGY_NAMES[0]  # default: From Layout
 
         self.reach_agent_by_type = {t: int(reach) for t in self.type_labels}
         self.reach_attr_by_type = {t: int(reach) for t in self.type_labels}
@@ -364,16 +365,19 @@ class CityModel:
             self.attractors["W"] = [(0, j) for j in range(self.h)]
             self.attractors["G"] = [(cx, cy), (min(self.w - 1, cx + 12), cy)]
 
-        self.apply_road_topology(self.road_topology)
+        self.current_layout = typ
         self._ensure_all_attractors_present()
         self.rebuild_attr_distance_fields()
         self.reset()
 
     def apply_road_topology(self, typ: str):
-        """仅替换道路(R)吸引子，其它吸引子保持不变。"""
+        """仅替换道路(R)吸引子，其它吸引子保持不变。From Layout 时恢复城市布局自带的道路。"""
         if typ not in ROAD_TOPOLOGY_NAMES:
             return
         self.road_topology = typ
+        if typ == "From Layout":
+            self.apply_layout(self.current_layout)
+            return
         cx, cy = self.w // 2, self.h // 2
         self.attractors["R"] = []
 

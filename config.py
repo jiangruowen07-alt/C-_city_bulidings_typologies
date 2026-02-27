@@ -91,7 +91,7 @@ UI_COLORS = {
 LAYOUT_NAMES = ["Grid", "Radial", "Organic", "Linear", "Polycentric", "Superblock", "Hybrid"]
 
 # -------------------- ROAD TOPOLOGY PRESETS --------------------
-ROAD_TOPOLOGY_NAMES = ["Linear", "Parallel", "Cross", "T-Junction", "Loop"]
+ROAD_TOPOLOGY_NAMES = ["From Layout", "Linear", "Parallel", "Cross", "T-Junction", "Loop"]
 
 # -------------------- SWAP RULE OPTIONS --------------------
 SWAP_RULE_OPTIONS = [

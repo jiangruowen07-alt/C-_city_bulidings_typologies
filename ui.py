@@ -2,6 +2,9 @@
 # CityUI: layout, canvas, views, panels, chart, events
 
 import tkinter as tk
+from tkinter import filedialog, messagebox
+
+from PIL import Image, ImageDraw
 
 from config import (
     ATTR_DEFS,
@@ -139,6 +142,11 @@ class CityUI:
         mkbtn(row, "RESET", self.reset).pack(side="left", expand=True, fill="x", padx=6)
         mkbtn(row, "CLEAR", self.clear).pack(side="left", expand=True, fill="x", padx=(6, 0))
 
+        exp_row = tk.Frame(panel, bg=UI_COLORS["panel_bg"])
+        exp_row.pack(fill="x", pady=(0, 10))
+        tk.Button(exp_row, text="EXPORT PNG", command=self.export_city_jpg,
+                  bg=UI_COLORS["panel_bg"], fg="white", relief="groove").pack(fill="x")
+
         rn = tk.Frame(panel, bg=UI_COLORS["panel_bg"])
         rn.pack(fill="x", pady=(0, 12))
         tk.Label(rn, text="RUN N STEPS", fg="#888", bg=UI_COLORS["panel_bg"],
@@ -204,13 +212,13 @@ class CityUI:
         self.road_topology_buttons = {}
         for idx, name in enumerate(ROAD_TOPOLOGY_NAMES):
             b = tk.Button(rtf, text=name.upper(), command=lambda n=name: self.set_road_topology(n),
-                          bg="#ffffff" if name == "Linear" else UI_COLORS["panel_bg"],
-                          fg="#000" if name == "Linear" else "white", relief="groove")
-            r, c = divmod(idx, 2)
+                          bg="#ffffff" if name == "From Layout" else UI_COLORS["panel_bg"],
+                          fg="#000" if name == "From Layout" else "white", relief="groove")
+            r, c = divmod(idx, 3)
             b.grid(row=r, column=c, sticky="ew", padx=2, pady=2)
             self.road_topology_buttons[name] = b
-        rtf.grid_columnconfigure(0, weight=1)
-        rtf.grid_columnconfigure(1, weight=1)
+        for c in range(3):
+            rtf.grid_columnconfigure(c, weight=1)
 
         tk.Label(panel, text="Infrastructure Tools", fg="#888", bg=UI_COLORS["panel_bg"],
                  font=("Consolas", 9, "bold")).pack(anchor="w")
@@ -614,7 +622,7 @@ class CityUI:
 
     def boot(self):
         self.set_layout_buttons("Grid")
-        self.set_road_topology_buttons("Linear")
+        self.set_road_topology_buttons("From Layout")
         self.set_tool("None")
         self.m.utility_bias = 0.0
         self.m.apply_layout("Grid")
@@ -735,6 +743,65 @@ class CityUI:
         self.reset_target_int = int(self.m.stats["totalUtility"])
         self.util_history.clear()
         self.rebuild_all()
+
+    def export_city_jpg(self):
+        """Export the rectangular city canvas as a PNG image (programmatic render, no screen capture)."""
+        if self._batch_running:
+            return
+        if self.show_view and self.view_mode == "contrib":
+            self.rebuild_contrib_cache()
+        path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG Image", "*.png"), ("All Files", "*.*")],
+            initialfile="city_export.png",
+        )
+        if not path:
+            return
+        try:
+            cell = max(self.cell, 8)
+            wpx = self.m.w * cell
+            hpx = self.m.h * cell
+            img = Image.new("RGB", (wpx, hpx), "#000000")
+            draw = ImageDraw.Draw(img)
+            grid_color = self.colors.get("grid", "#1c1c1c")
+
+            if self.show_view:
+                for x in range(self.m.w):
+                    for y in range(self.m.h):
+                        fill = self.view_fill_at(x, y)
+                        draw.rectangle(
+                            [x * cell, y * cell, (x + 1) * cell - 1, (y + 1) * cell - 1],
+                            fill=fill, outline=fill
+                        )
+            else:
+                draw_order = self.m._get_attr_draw_order()
+                for k in draw_order:
+                    lst = self.m.attractors.get(k, [])
+                    col = self.colors.get(k, "#ffffff")
+                    for (x, y) in lst:
+                        x1, y1 = x * cell + 1, y * cell + 1
+                        x2, y2 = (x + 1) * cell - 1, (y + 1) * cell - 1
+                        draw.rectangle([x1, y1, x2, y2], fill=col, outline=col)
+                for a in self.m.agents:
+                    cx = a.x * cell + cell / 2
+                    cy = a.y * cell + cell / 2
+                    r = cell * 0.35
+                    draw.ellipse(
+                        [cx - r, cy - r, cx + r, cy + r],
+                        fill=self.colors.get(a.type, "#ffffff"),
+                        outline="#ffffff", width=max(1, int(cell / 15))
+                    )
+
+            for i in range(self.m.w + 1):
+                px = i * cell
+                draw.line([(px, 0), (px, hpx)], fill=grid_color, width=1)
+            for j in range(self.m.h + 1):
+                py = j * cell
+                draw.line([(0, py), (wpx, py)], fill=grid_color, width=1)
+
+            img.save(path, "PNG")
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e))
 
     def run_n_steps(self):
         if self._batch_running:

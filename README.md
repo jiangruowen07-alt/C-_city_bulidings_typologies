@@ -5,10 +5,11 @@
 ## 运行
 
 ```bash
+pip install -r requirements.txt
 python main.py
 ```
 
-**依赖**：Python 3.x，仅使用标准库（tkinter）。
+**依赖**：Python 3.x、tkinter、Pillow（用于导出 PNG）。
 
 ## 功能概览
 
@@ -17,6 +18,7 @@ python main.py
 - **效用计算**：基于曼哈顿距离的加权求和 `Σ (偏好权重 / 距离)`
 - **交换规则**：Pareto、Greedy Total、Greedy Both、Greedy 1-sided
 - **预设布局**：Grid、Radial、Organic、Linear、Polycentric、Superblock、Hybrid
+- **道路拓扑**：From Layout、Linear、Parallel、Cross、T-Junction、Loop
 
 ## 项目结构
 
@@ -24,8 +26,9 @@ python main.py
 |------|------|
 | `main.py` | 入口，启动 40×40 网格与 6 格影响半径 |
 | `model.py` | 模拟逻辑：Agent、效用、交换、距离场、布局生成 |
-| `ui.py` | Tkinter 界面：画布、工具、偏好矩阵、图表 |
-| `config.py` | 吸引子定义、Agent 偏好、颜色、布局名、交换规则选项 |
+| `ui.py` | Tkinter 界面：画布、工具、偏好矩阵、图表、导出 |
+| `config.py` | 吸引子定义、Agent 偏好、颜色、布局名、交换规则、道路拓扑 |
+| `requirements.txt` | 依赖：Pillow |
 
 ## 配置
 
@@ -36,10 +39,13 @@ python main.py
 - `DEFAULT_PREF_AGENT`：各 Agent 之间的邻近偏好
 - `SWAP_RULE_OPTIONS`：可选的交换规则
 - `LAYOUT_NAMES`：预设布局列表
+- `ROAD_TOPOLOGY_NAMES`：道路拓扑预设
 
 ## 界面操作
 
 - **工具**：VIEW、ROAD、PARK、TRANS、WATER、SCHOOL、HEALTH、GOV，用于在网格上放置吸引子
 - **视图**：公/私四档视图、单元贡献视图
-- **运行**：单步 / 连续运行 / 批量运行
-- **偏好矩阵**：可编辑 Agent 对吸引子及对其他 Agent 的偏好
+- **运行**：单步 / 连续运行 / 批量运行（RUN N STEPS + GO）
+- **偏好矩阵**：可编辑 Agent 对吸引子、对其他 Agent 的偏好，以及各类型的 Reach（曼哈顿距离）
+- **导出**：EXPORT PNG 将当前城市场地导出为 PNG 图片（程序化渲染，支持普通视图与公私有/贡献度视图）
+- **Reach 叠加**：悬停 Agent 时显示其影响半径（实线=对 Agent，虚线=对吸引子）
