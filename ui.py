@@ -25,7 +25,6 @@ from config import (
     ORIGINAL_CITYLAB_PP_ATTR_RANK,
 )
 from model import Agent, CityModel
-from export_csharp import export_to_csharp
 
 
 class CityUI:
@@ -192,9 +191,7 @@ class CityUI:
         exp_row = tk.Frame(panel, bg=UI_COLORS["panel_bg"])
         exp_row.pack(fill="x", pady=(0, 10))
         tk.Button(exp_row, text="EXPORT PNG", command=self.export_city_jpg,
-                  bg=UI_COLORS["panel_bg"], fg="white", relief="groove").pack(side="left", fill="x", expand=True, padx=(0, 4))
-        tk.Button(exp_row, text="EXPORT C#", command=self.export_csharp,
-                  bg=UI_COLORS["panel_bg"], fg="white", relief="groove").pack(side="left", fill="x", expand=True, padx=(4, 0))
+                  bg=UI_COLORS["panel_bg"], fg="white", relief="groove").pack(fill="x")
 
         rn = tk.Frame(panel, bg=UI_COLORS["panel_bg"])
         rn.pack(fill="x", pady=(0, 12))
@@ -951,25 +948,6 @@ class CityUI:
             img.save(path, "PNG")
         except Exception as e:
             messagebox.showerror("Export Error", str(e))
-
-    def export_csharp(self):
-        """Export full game logic as C# code for Grasshopper (Rhino)."""
-        if self._batch_running:
-            return
-        path = filedialog.asksaveasfilename(
-            defaultextension=".cs",
-            filetypes=[("C# Script", "*.cs"), ("All Files", "*.*")],
-            initialfile="CityLab_Grasshopper.cs",
-        )
-        if not path:
-            return
-        try:
-            code = export_to_csharp()
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(code)
-            messagebox.showinfo("Export C#", f"Exported to:\n{path}\n\nFull game logic - paste into Grasshopper C# component. Inputs: x=W, y=H, z=Steps.")
-        except Exception as e:
-            messagebox.showerror("Export C# Error", str(e))
 
     def run_n_steps(self):
         if self._batch_running:

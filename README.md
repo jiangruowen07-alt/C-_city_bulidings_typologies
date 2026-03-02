@@ -37,7 +37,6 @@ python main.py
 | `main.py` | 入口，启动 40×40 网格与 6 格影响半径 / Entry point, 40×40 grid, reach=6 |
 | `model.py` | 模拟逻辑：Agent、效用、交换、距离场、布局生成 / Simulation: agents, utility, swaps, distance fields, layouts |
 | `ui.py` | Tkinter 界面：画布、工具、偏好矩阵、图表、导出 / UI: canvas, tools, preference matrices, chart, export |
-| `export_csharp.py` | 将游戏逻辑导出为 C# 代码，用于 Grasshopper / Export game logic to C# for Grasshopper |
 | `config.py` | 吸引子定义、Agent 偏好、颜色、布局名、交换规则、道路拓扑 / Attractors, preferences, colors, layouts, swap rules, road topology |
 | `requirements.txt` | 依赖：Pillow / Dependencies: Pillow |
 
@@ -66,5 +65,5 @@ python main.py
 | **视图** | 公/私四档视图、单元满意度视图 | Public/private 4-bin view, cell satisfaction view |
 | **运行** | 单步 / 连续运行 / 批量运行（RUN N STEPS + GO） | Step / continuous / batch run (RUN N STEPS + GO) |
 | **偏好矩阵** | 可编辑 Agent 对吸引子、对其他 Agent 的偏好，以及影响范围矩阵（吸引子→代理、代理→代理） | Editable Agent→Attractor, Agent→Agent preferences, and influence range matrices (attr→agent, agent→agent) |
-| **导出** | EXPORT PNG 导出城市场地为 PNG；EXPORT C# 导出游戏逻辑为 C# 代码，可在 Rhino/Grasshopper 中进一步分析 | Export city as PNG; Export C# for Rhino/Grasshopper analysis |
+| **导出** | EXPORT PNG 将当前城市场地导出为 PNG 图片（程序化渲染，支持普通视图与公私有/满意度视图） | Export current city as PNG (programmatic render, supports all view modes) |
 | **影响范围叠加** | 悬停 Agent 时显示能影响到它的源的最大范围（实线=代理，虚线=吸引子） | Hover over agent to show max influence range from sources (solid=agents, dashed=attractors) |

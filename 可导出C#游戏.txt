@@ -1,109 +1,61 @@
 ================================================================================
-CITY LAB - 改动记录：可导出 C# 完整游戏逻辑
-Change Log: Full C# Game Logic Export for Grasshopper
+CITY LAB - 改动记录：可导出 C# 游戏逻辑
+Change Log: C# Export for Grasshopper
 ================================================================================
 
 日期 Date: 2025-03-02
 
 --------------------------------------------------------------------------------
-功能说明 Feature
+新增功能 New Feature
 --------------------------------------------------------------------------------
 
-导出完整游戏逻辑（非当前状态快照），可在 Grasshopper C# 电池中独立运行。
+1. 新增文件 New File: export_csharp.py
+   - export_to_csharp(model): 将当前 CityModel 状态导出为完整 C# 脚本
+   - export_core_logic_only(): 导出纯算法逻辑（无运行时数据），供自定义使用
+   - 导出内容包含：
+     * Agent 类（Type, X, Y）
+     * CityModelGH 类：效用计算、距离场 BFS、四种交换规则
+     * 吸引子、偏好矩阵、Agent 列表、Reach 等配置
+     * Grasshopper 脚本主体
 
-Exports complete game logic (not current state snapshot) - runs standalone in Grasshopper.
+2. UI 修改 UI Changes: ui.py
+   - 在导出区域新增 "EXPORT C#" 按钮（与 EXPORT PNG 并排）
+   - 新增 export_csharp() 方法：选择保存路径，导出 .cs 文件
+   - 导出前校验：至少 2 个 Agent 才可导出
 
---------------------------------------------------------------------------------
-导出内容 Export Contents
---------------------------------------------------------------------------------
-
-1. CityLabGH 类 - 完整模拟引擎
-   - ApplyLayout(layout): 7 种布局 (Grid, Radial, Organic, Linear, Polycentric, Superblock, Hybrid)
-   - ApplyRoadTopology(typ): 6 种道路拓扑 (From Layout, Linear, Parallel, Cross, T-Junction, Loop)
-   - Reset(): 随机初始化 Agent
-   - Step() / RunSteps(n): 交换迭代
-   - GetUtility(): 效用计算（影响范围矩阵）
-   - 四种交换规则: pareto, greedy_total, greedy_both, greedy_1
-
-2. 默认配置 Default Config
-   - 7 吸引子: T, P, R, W, S, H, G
-   - 7 Agent 类型: Resi, Firm, Shop, Cafe, Hotel, Restaurant, Clinic
-   - 偏好矩阵 pref_attr, pref_agent
-   - 影响范围 influence_range (T=20, 其余=6)
+3. 文档更新 Documentation: README.md
+   - 项目结构表增加 export_csharp.py 说明
+   - 导出功能描述增加 C# 导出说明
 
 --------------------------------------------------------------------------------
-Grasshopper 使用 Usage in Grasshopper
+Grasshopper 使用说明 Usage in Grasshopper
 --------------------------------------------------------------------------------
 
-1. 添加 C# Script 组件
-2. 粘贴导出的 .cs 文件内容
-3. 添加输入参数:
-   - x: W (网格宽度, int)
-   - y: H (网格高度, int)
-   - z: Steps (迭代步数, int)
-   - 可选: Layout, SwapMode, RoadTopology (string) - 需在脚本内取消注释并添加对应输入
-
-4. 添加输出 E (吸引子点位):
-   - 右键 C# 组件 → Manage Outputs → 添加 E
-   - 或脚本已输出 A,B,C,D,E，确保组件有 5 个输出
-
-5. 输出:
+1. 在 Rhino 中打开 Grasshopper
+2. 添加 C# Script 组件
+3. 将导出的 .cs 文件内容粘贴进脚本
+4. 输出端口：
    - A: Agent 位置 (List<Point3d>)
    - B: Agent 类型 (List<string>)
    - C: 总效用 (double)
    - D: 统计信息 (string)
-   - E: 吸引子位置 (List<Point3d>)
+
+5. 可选：在 C# 组件添加输入参数 (W, H, Steps, SwapMode)，取消脚本内对应注释以启用
 
 --------------------------------------------------------------------------------
-与 Python 逻辑对应 Logic Mapping
+导出逻辑对应关系 Export Logic Mapping
 --------------------------------------------------------------------------------
 
-Python (model.py)              →  C# (CityLabGH)
-─────────────────────────────────────────────────────────
-apply_layout(typ)              →  ApplyLayout(layout)
-apply_road_topology(typ)       →  ApplyRoadTopology(typ)
-_reset_agents_once()           →  Reset()
-step()                         →  Step()
-get_utility()                  →  GetUtility()
-influence_range_attr/agent     →  InfluenceRangeAttr/Agent
-
---------------------------------------------------------------------------------
-单文件 GH_ScriptInstance 格式 (CityLabGame.cs)
---------------------------------------------------------------------------------
-
-新增文件 CityLabGame.cs：采用 GH_ScriptInstance 结构，支持持久化状态与 UI 防卡顿。
-
-1. 结构
-   - #region Usings: Rhino, Grasshopper, System 等
-   - Script_Instance : GH_ScriptInstance
-   - 持久化状态: _model, _lastW, _lastH, _lastLayout, _lastRoadTopology
-   - Stopwatch 定时器: 防止 UI 锁定
-
-2. RunScript 输入参数
-   - w (object): 网格宽度，默认 40
-   - h (object): 网格高度，默认 40
-   - reset (bool): 是否重置
-   - run (bool): 是否运行模拟
-   - swapCount (int): 每轮交换次数
-   - layout (object): 布局名称
-   - swapMode (object): 交换规则
-   - roadTopology (object): 道路拓扑
-
-3. 输出
-   - A: Agent 点位 (List<Point3d>)
-   - B: Agent 类型 (List<string>)
-   - C: 总效用 (double)
-   - D: 统计信息 (string)
-   - E: 吸引子点位 (List<Point3d>)
-
-4. 使用方式
-   - 新建 C# Script 组件，粘贴 CityLabGame.cs 全部内容
-   - 添加 8 个输入: w, h, reset, run, swapCount, layout, swapMode, roadTopology
-   - 确保 5 个输出: A, B, C, D, E
-   - reset 或 run 为 true 时触发计算；run 时每轮执行 swapCount 次交换并 ExpireSolution 增量更新
-
-5. 与 export_csharp.py 导出区别
-   - export_csharp: 一次性运行，无持久化
-   - CityLabGame.cs: 持久化 _model，支持 reset/run 切换、增量模拟、UI 防卡顿
+Python (model.py)          →  C# (export_csharp.py)
+─────────────────────────────────────────────────
+Agent(type, x, y)          →  Agent(Type, X, Y)
+CityModel.get_utility()    →  CityModelGH.GetUtility()
+CityModel.step()           →  CityModelGH.Step()
+CityModel.calc_total_utility() → CityModelGH.CalcTotalUtility()
+dist_attr (BFS)            →  DistAttr (BFS)
+swap_mode                  →  SwapMode
+pref_attr, pref_agent      →  PrefAttr, PrefAgent
+reach_attr_by_type         →  ReachAttr
+reach_agent_by_type        →  ReachAgent
 
 ================================================================================
