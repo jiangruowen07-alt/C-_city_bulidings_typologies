@@ -953,11 +953,8 @@ class CityUI:
             messagebox.showerror("Export Error", str(e))
 
     def export_csharp(self):
-        """Export game logic as C# code for Grasshopper (Rhino)."""
+        """Export full game logic as C# code for Grasshopper (Rhino)."""
         if self._batch_running:
-            return
-        if len(self.m.agents) < 2:
-            messagebox.showwarning("Export C#", "Need at least 2 agents. Run RESET first.")
             return
         path = filedialog.asksaveasfilename(
             defaultextension=".cs",
@@ -967,10 +964,10 @@ class CityUI:
         if not path:
             return
         try:
-            code = export_to_csharp(self.m)
+            code = export_to_csharp()
             with open(path, "w", encoding="utf-8") as f:
                 f.write(code)
-            messagebox.showinfo("Export C#", f"Exported to:\n{path}\n\nPaste into Grasshopper C# component for Rhino analysis.")
+            messagebox.showinfo("Export C#", f"Exported to:\n{path}\n\nFull game logic - paste into Grasshopper C# component. Inputs: x=W, y=H, z=Steps.")
         except Exception as e:
             messagebox.showerror("Export C# Error", str(e))
 
