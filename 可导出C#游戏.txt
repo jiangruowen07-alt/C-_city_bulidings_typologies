@@ -1,0 +1,61 @@
+================================================================================
+CITY LAB - 改动记录：可导出 C# 游戏逻辑
+Change Log: C# Export for Grasshopper
+================================================================================
+
+日期 Date: 2025-03-02
+
+--------------------------------------------------------------------------------
+新增功能 New Feature
+--------------------------------------------------------------------------------
+
+1. 新增文件 New File: export_csharp.py
+   - export_to_csharp(model): 将当前 CityModel 状态导出为完整 C# 脚本
+   - export_core_logic_only(): 导出纯算法逻辑（无运行时数据），供自定义使用
+   - 导出内容包含：
+     * Agent 类（Type, X, Y）
+     * CityModelGH 类：效用计算、距离场 BFS、四种交换规则
+     * 吸引子、偏好矩阵、Agent 列表、Reach 等配置
+     * Grasshopper 脚本主体
+
+2. UI 修改 UI Changes: ui.py
+   - 在导出区域新增 "EXPORT C#" 按钮（与 EXPORT PNG 并排）
+   - 新增 export_csharp() 方法：选择保存路径，导出 .cs 文件
+   - 导出前校验：至少 2 个 Agent 才可导出
+
+3. 文档更新 Documentation: README.md
+   - 项目结构表增加 export_csharp.py 说明
+   - 导出功能描述增加 C# 导出说明
+
+--------------------------------------------------------------------------------
+Grasshopper 使用说明 Usage in Grasshopper
+--------------------------------------------------------------------------------
+
+1. 在 Rhino 中打开 Grasshopper
+2. 添加 C# Script 组件
+3. 将导出的 .cs 文件内容粘贴进脚本
+4. 输出端口：
+   - A: Agent 位置 (List<Point3d>)
+   - B: Agent 类型 (List<string>)
+   - C: 总效用 (double)
+   - D: 统计信息 (string)
+
+5. 可选：在 C# 组件添加输入参数 (W, H, Steps, SwapMode)，取消脚本内对应注释以启用
+
+--------------------------------------------------------------------------------
+导出逻辑对应关系 Export Logic Mapping
+--------------------------------------------------------------------------------
+
+Python (model.py)          →  C# (export_csharp.py)
+─────────────────────────────────────────────────
+Agent(type, x, y)          →  Agent(Type, X, Y)
+CityModel.get_utility()    →  CityModelGH.GetUtility()
+CityModel.step()           →  CityModelGH.Step()
+CityModel.calc_total_utility() → CityModelGH.CalcTotalUtility()
+dist_attr (BFS)            →  DistAttr (BFS)
+swap_mode                  →  SwapMode
+pref_attr, pref_agent      →  PrefAttr, PrefAgent
+reach_attr_by_type         →  ReachAttr
+reach_agent_by_type        →  ReachAgent
+
+================================================================================

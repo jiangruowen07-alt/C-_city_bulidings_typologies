@@ -52,6 +52,16 @@ class CityModel:
         self.reach_agent_by_type = {t: int(reach) for t in self.type_labels}
         self.reach_attr_by_type = {t: int(reach) for t in self.type_labels}
 
+        # 影响范围矩阵：从“源”的视角，源能影响多远内的目标
+        # influence_range_attr[k][t]: 吸引子类型k对代理类型t的影响范围
+        # influence_range_agent[src][tgt]: 代理类型src对代理类型tgt的影响范围
+        self.influence_range_attr = {k: {t: int(reach) for t in self.type_labels} for k in self.attr_keys}
+        self.influence_range_agent = {s: {t: int(reach) for t in self.type_labels} for s in self.type_labels}
+        # T(交通) 影响范围默认 20
+        for t in self.type_labels:
+            self.influence_range_attr["T"][t] = 20
+        self._ensure_influence_tables_complete()
+
         # Deep copy default prefs so UI can edit in place
         self.pref_attr = {t: dict(DEFAULT_PREF_ATTR.get(t, {})) for t in self.type_labels}
         self.pref_agent = {t: dict(DEFAULT_PREF_AGENT.get(t, {})) for t in self.type_labels}
@@ -79,6 +89,25 @@ class CityModel:
                     v = int(self.reach)
                 table[t] = max(1, v)
                 setattr(self, table_name, table)
+
+    def _ensure_influence_tables_complete(self):
+        """确保影响范围矩阵完整，默认值用 reach。"""
+        for k in self.attr_keys:
+            self.influence_range_attr.setdefault(k, {})
+            for t in self.type_labels:
+                try:
+                    v = int(self.influence_range_attr[k].get(t, self.reach))
+                except Exception:
+                    v = int(self.reach)
+                self.influence_range_attr[k][t] = max(1, v)
+        for s in self.type_labels:
+            self.influence_range_agent.setdefault(s, {})
+            for t in self.type_labels:
+                try:
+                    v = int(self.influence_range_agent[s].get(t, self.reach))
+                except Exception:
+                    v = int(self.reach)
+                self.influence_range_agent[s][t] = max(1, v)
 
     def _get_attr_draw_order(self):
         """吸引子重叠时保留数量较少的：先绘制数量多的，后绘制数量少的。"""
@@ -445,28 +474,30 @@ class CityModel:
                 self.attractors[k] = [(cx, cy)]
 
     def get_utility(self, agent: Agent, x, y):
+        """
+        基于影响范围的效用计算：代理的满意度 = 能影响到它的代理和吸引子的贡献之和。
+        每个吸引子/代理有影响范围，只有在其范围内的目标才会被计入。
+        """
         pa = self.pref_attr[agent.type]
         pg = self.pref_agent[agent.type]
         u = 0.0
-        reach_attr = int(self.reach_attr_by_type.get(agent.type, self.reach))
-        reach_agent = int(self.reach_agent_by_type.get(agent.type, self.reach))
+        my_type = agent.type
 
+        # 吸引子：对每种吸引子k，若最近距离 <= 该吸引子对当前代理类型的影响范围，则计入
         for k in self.attr_keys:
             md = self.dist_attr[k][x][y]
-            if md <= reach_attr:
+            r_attr = int(self.influence_range_attr.get(k, {}).get(my_type, self.reach))
+            if md <= r_attr:
                 u += pa[k] / max(md, 1)
 
-        r = reach_agent
-        for dx in range(-r, r + 1):
-            for dy in range(-r, r + 1):
-                if dx == 0 and dy == 0:
-                    continue
-                nx, ny = x + dx, y + dy
-                dist = abs(dx) + abs(dy)
-                if dist <= r and 0 <= nx < self.w and 0 <= ny < self.h:
-                    nb = self.grid[nx][ny]
-                    if nb is not None:
-                        u += pg[nb.type] / max(dist, 1)
+        # 其他代理：遍历所有代理，若其影响范围能覆盖到(x,y)，则计入
+        for nb in self.agents:
+            if nb.x == x and nb.y == y:
+                continue
+            dist = abs(nb.x - x) + abs(nb.y - y)
+            r_agent = int(self.influence_range_agent.get(nb.type, {}).get(my_type, self.reach))
+            if dist <= r_agent:
+                u += pg[nb.type] / max(dist, 1)
         return u
 
     def step(self):

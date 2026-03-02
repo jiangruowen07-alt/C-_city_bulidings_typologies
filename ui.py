@@ -19,6 +19,7 @@ from config import (
     TOOLS,
 )
 from model import Agent, CityModel
+from export_csharp import export_to_csharp
 
 
 class CityUI:
@@ -57,6 +58,8 @@ class CityUI:
         self._hover_after = None
         self._reach_tag = "reach"
         self._reach_center_tag = "reach_center"
+        self._contrib_tooltip = None
+        self._contrib_tooltip_lbl = None
 
         self.swap_mode_var = tk.StringVar(value=self.m.swap_mode)
         self.reset_target_int = None
@@ -85,7 +88,7 @@ class CityUI:
         return w is self.canvas
 
     def build_layout(self):
-        self.root.title("CITY LAB v1.5 - Public/Private (4 bins) + Cell Contribution")
+        self.root.title("CITY LAB v1.5 - Public/Private (4 bins) + Cell Satisfaction")
         self.root.configure(bg=UI_COLORS["panel_bg"])
 
         app = tk.Frame(self.root, bg=UI_COLORS["panel_bg"])
@@ -145,7 +148,9 @@ class CityUI:
         exp_row = tk.Frame(panel, bg=UI_COLORS["panel_bg"])
         exp_row.pack(fill="x", pady=(0, 10))
         tk.Button(exp_row, text="EXPORT PNG", command=self.export_city_jpg,
-                  bg=UI_COLORS["panel_bg"], fg="white", relief="groove").pack(fill="x")
+                  bg=UI_COLORS["panel_bg"], fg="white", relief="groove").pack(side="left", fill="x", expand=True, padx=(0, 4))
+        tk.Button(exp_row, text="EXPORT C#", command=self.export_csharp,
+                  bg=UI_COLORS["panel_bg"], fg="white", relief="groove").pack(side="left", fill="x", expand=True, padx=(4, 0))
 
         rn = tk.Frame(panel, bg=UI_COLORS["panel_bg"])
         rn.pack(fill="x", pady=(0, 12))
@@ -238,12 +243,12 @@ class CityUI:
                                 bg=UI_COLORS["panel_bg"], fg="white", relief="groove")
         self.pp_btn.pack(fill="x", pady=(0, 10))
 
-        self.contrib_btn = tk.Button(panel, text="CELL CONTRIBUTION VIEW",
+        self.contrib_btn = tk.Button(panel, text="CELL SATISFACTION VIEW",
                                      command=self.toggle_contrib_view,
                                      bg=UI_COLORS["panel_bg"], fg="white", relief="groove")
         self.contrib_btn.pack(fill="x", pady=(0, 10))
 
-        self.reach_btn = tk.Button(panel, text="SHOW REACH OVERLAY (HOVER)",
+        self.reach_btn = tk.Button(panel, text="SHOW INFLUENCE OVERLAY (HOVER)",
                                    command=self.toggle_reach_overlay,
                                    bg="#ffffff", fg="#000000", relief="groove")
         self.reach_btn.pack(fill="x", pady=(0, 10))
@@ -264,10 +269,14 @@ class CityUI:
                  font=("Consolas", 9, "bold")).pack(anchor="w", pady=(0, 2))
         self.matrix_agent_container = tk.Frame(panel, bg=UI_COLORS["box_bg"], highlightbackground=UI_COLORS["border"], highlightthickness=1)
         self.matrix_agent_container.pack(fill="x", pady=(0, 10))
-        tk.Label(panel, text="C) Agent → Reach (Manhattan)", fg="#666", bg=UI_COLORS["panel_bg"],
+        tk.Label(panel, text="C) Attractor influence range (attr→agent)", fg="#666", bg=UI_COLORS["panel_bg"],
                  font=("Consolas", 9, "bold")).pack(anchor="w", pady=(0, 2))
-        self.matrix_reach_container = tk.Frame(panel, bg=UI_COLORS["box_bg"], highlightbackground=UI_COLORS["border"], highlightthickness=1)
-        self.matrix_reach_container.pack(fill="x", pady=(0, 12))
+        self.matrix_influence_attr_container = tk.Frame(panel, bg=UI_COLORS["box_bg"], highlightbackground=UI_COLORS["border"], highlightthickness=1)
+        self.matrix_influence_attr_container.pack(fill="x", pady=(0, 6))
+        tk.Label(panel, text="D) Agent influence range (agent→agent)", fg="#666", bg=UI_COLORS["panel_bg"],
+                 font=("Consolas", 9, "bold")).pack(anchor="w", pady=(0, 2))
+        self.matrix_influence_agent_container = tk.Frame(panel, bg=UI_COLORS["box_bg"], highlightbackground=UI_COLORS["border"], highlightthickness=1)
+        self.matrix_influence_agent_container.pack(fill="x", pady=(0, 12))
 
         tk.Label(panel, text="Value Trend (Total Utility)", fg="#888", bg=UI_COLORS["panel_bg"],
                  font=("Consolas", 9, "bold")).pack(anchor="w")
@@ -324,13 +333,13 @@ class CityUI:
         row_item(self.pp_bin_colors["lgray"], "Bin 2: Semi-public (light gray)", shape="rect", outline="#111")
         row_item(self.pp_bin_colors["dgray"], "Bin 3: Semi-private (dark gray)", shape="rect", outline="#111")
         row_item(self.pp_bin_colors["black"], "Bin 4: Private (black)", shape="rect", outline="#111")
-        tk.Label(parent, text="Cell Contribution View", fg="#aaa", bg=UI_COLORS["box_bg"],
+        tk.Label(parent, text="Cell Satisfaction View", fg="#aaa", bg=UI_COLORS["box_bg"],
                  font=("Consolas", 9, "bold")).pack(anchor="w", padx=10, pady=(10, 2))
-        row_item("#777777", "Grayscale = normalized contribution (min→max)", shape="rect", outline="#111")
-        tk.Label(parent, text="Reach Overlay (hover an agent)", fg="#aaa", bg=UI_COLORS["box_bg"],
+        row_item("#777777", "Grayscale = normalized satisfaction (min→max)", shape="rect", outline="#111")
+        tk.Label(parent, text="Influence Overlay (hover agent/attractor)", fg="#aaa", bg=UI_COLORS["box_bg"],
                  font=("Consolas", 9, "bold")).pack(anchor="w", padx=10, pady=(10, 2))
-        row_item("", "Solid diamond = Reach_to_Agents", shape="rect", outline="#fff")
-        row_item("", "Dashed diamond = Reach_to_Attractors", shape="rect", outline="#777")
+        row_item("", "Agent: solid = this agent's influence range on others", shape="rect", outline="#fff")
+        row_item("", "Attractor: dashed = this attractor's influence range", shape="rect", outline="#777")
 
     def _stat_box(self, parent, title, var):
         box = tk.Frame(parent, bg=UI_COLORS["panel_bg"], highlightbackground=UI_COLORS["border"], highlightthickness=1)
@@ -345,12 +354,15 @@ class CityUI:
             w.destroy()
         for w in self.matrix_agent_container.winfo_children():
             w.destroy()
-        for w in self.matrix_reach_container.winfo_children():
+        for w in self.matrix_influence_attr_container.winfo_children():
+            w.destroy()
+        for w in self.matrix_influence_agent_container.winfo_children():
             w.destroy()
         self.matrix_entries = {}
         self._build_matrix_table(parent=self.matrix_attr_container, table="attr", cols=self.m.attr_keys)
         self._build_matrix_table(parent=self.matrix_agent_container, table="agent", cols=self.m.type_labels)
-        self._build_reach_table(parent=self.matrix_reach_container)
+        self._build_influence_attr_table(parent=self.matrix_influence_attr_container)
+        self._build_influence_agent_table(parent=self.matrix_influence_agent_container)
 
     def _build_matrix_table(self, parent, table: str, cols):
         tk.Label(parent, text="", bg="#111", fg="#888",
@@ -373,35 +385,49 @@ class CityUI:
         for j in range(len(cols) + 1):
             parent.grid_columnconfigure(j, weight=1)
 
-    def _build_reach_table(self, parent):
-        tk.Label(parent, text="TYPE", bg="#111", fg="#888",
-                 font=("Consolas", 8, "bold"), width=10, anchor="w").grid(row=0, column=0, sticky="nsew")
-        tk.Label(parent, text="AGENTS", bg="#111", fg="#888",
-                 font=("Consolas", 8, "bold"), width=7).grid(row=0, column=1, sticky="nsew")
-        tk.Label(parent, text="ATTR", bg="#111", fg="#888",
-                 font=("Consolas", 8, "bold"), width=7).grid(row=0, column=2, sticky="nsew")
-        for i, t in enumerate(self.m.type_labels, start=1):
-            tk.Label(parent, text=t, bg=UI_COLORS["box_bg"], fg="#aaa",
-                     font=("Consolas", 8, "bold"), width=10, anchor="w").grid(row=i, column=0, sticky="nsew")
-            entA = tk.Entry(parent, width=7, justify="center",
-                            bg=UI_COLORS["box_bg"], fg="white", relief="flat",
-                            insertbackground="white", font=("Consolas", 9))
-            entB = tk.Entry(parent, width=7, justify="center",
-                            bg=UI_COLORS["box_bg"], fg="white", relief="flat",
-                            insertbackground="white", font=("Consolas", 9))
-            entA.insert(0, str(int(self.m.reach_agent_by_type.get(t, self.m.reach))))
-            entB.insert(0, str(int(self.m.reach_attr_by_type.get(t, self.m.reach))))
-            entA.grid(row=i, column=1, sticky="nsew", padx=1, pady=1)
-            entB.grid(row=i, column=2, sticky="nsew", padx=1, pady=1)
-            self.matrix_entries[("reach", t, "agent")] = entA
-            self.matrix_entries[("reach", t, "attr")] = entB
-            entA.bind("<Return>", lambda e, tt=t: self.on_reach_change(tt))
-            entA.bind("<FocusOut>", lambda e, tt=t: self.on_reach_change(tt))
-            entB.bind("<Return>", lambda e, tt=t: self.on_reach_change(tt))
-            entB.bind("<FocusOut>", lambda e, tt=t: self.on_reach_change(tt))
-        parent.grid_columnconfigure(0, weight=1)
-        parent.grid_columnconfigure(1, weight=1)
-        parent.grid_columnconfigure(2, weight=1)
+    def _build_influence_attr_table(self, parent):
+        """吸引子影响范围：行=吸引子类型，列=代理类型"""
+        tk.Label(parent, text="", bg="#111", fg="#888",
+                 font=("Consolas", 8, "bold"), width=6).grid(row=0, column=0, sticky="nsew")
+        for j, t in enumerate(self.m.type_labels, start=1):
+            tk.Label(parent, text=t[:4], bg="#111", fg="#888",
+                     font=("Consolas", 7, "bold"), width=5).grid(row=0, column=j, sticky="nsew")
+        for i, k in enumerate(self.m.attr_keys, start=1):
+            tk.Label(parent, text=k, bg=UI_COLORS["box_bg"], fg="#aaa",
+                     font=("Consolas", 8, "bold"), width=6, anchor="w").grid(row=i, column=0, sticky="nsew")
+            for j, t in enumerate(self.m.type_labels, start=1):
+                ent = tk.Entry(parent, width=5, justify="center",
+                               bg=UI_COLORS["box_bg"], fg="white", relief="flat",
+                               insertbackground="white", font=("Consolas", 8))
+                ent.insert(0, str(int(self.m.influence_range_attr.get(k, {}).get(t, self.m.reach))))
+                ent.grid(row=i, column=j, sticky="nsew", padx=1, pady=1)
+                self.matrix_entries[("influence_attr", k, t)] = ent
+                ent.bind("<Return>", lambda e, kk=k, tt=t: self.on_influence_change("attr", kk, tt))
+                ent.bind("<FocusOut>", lambda e, kk=k, tt=t: self.on_influence_change("attr", kk, tt))
+        for j in range(len(self.m.type_labels) + 1):
+            parent.grid_columnconfigure(j, weight=1)
+
+    def _build_influence_agent_table(self, parent):
+        """代理影响范围：行=源代理类型，列=目标代理类型"""
+        tk.Label(parent, text="", bg="#111", fg="#888",
+                 font=("Consolas", 8, "bold"), width=6).grid(row=0, column=0, sticky="nsew")
+        for j, t in enumerate(self.m.type_labels, start=1):
+            tk.Label(parent, text=t[:4], bg="#111", fg="#888",
+                     font=("Consolas", 7, "bold"), width=5).grid(row=0, column=j, sticky="nsew")
+        for i, src in enumerate(self.m.type_labels, start=1):
+            tk.Label(parent, text=src, bg=UI_COLORS["box_bg"], fg="#aaa",
+                     font=("Consolas", 8, "bold"), width=6, anchor="w").grid(row=i, column=0, sticky="nsew")
+            for j, tgt in enumerate(self.m.type_labels, start=1):
+                ent = tk.Entry(parent, width=5, justify="center",
+                               bg=UI_COLORS["box_bg"], fg="white", relief="flat",
+                               insertbackground="white", font=("Consolas", 8))
+                ent.insert(0, str(int(self.m.influence_range_agent.get(src, {}).get(tgt, self.m.reach))))
+                ent.grid(row=i, column=j, sticky="nsew", padx=1, pady=1)
+                self.matrix_entries[("influence_agent", src, tgt)] = ent
+                ent.bind("<Return>", lambda e, s=src, t=tgt: self.on_influence_change("agent", s, t))
+                ent.bind("<FocusOut>", lambda e, s=src, t=tgt: self.on_influence_change("agent", s, t))
+        for j in range(len(self.m.type_labels) + 1):
+            parent.grid_columnconfigure(j, weight=1)
 
     def _refresh_reset_target_to_current(self):
         self.reset_target_int = int(self.m.stats.get("totalUtility", 0.0))
@@ -426,24 +452,27 @@ class CityUI:
             self.rebuild_contrib_cache()
             self.refresh_view_full()
 
-    def on_reach_change(self, typ):
-        entA = self.matrix_entries[("reach", typ, "agent")]
-        entB = self.matrix_entries[("reach", typ, "attr")]
+    def on_influence_change(self, table, row_key, col_key):
+        key = ("influence_attr", row_key, col_key) if table == "attr" else ("influence_agent", row_key, col_key)
+        ent = self.matrix_entries.get(key)
+        if ent is None:
+            return
 
-        def _parse_int(ent, fallback):
+        def _parse_int(e, fallback):
             try:
-                v = int(float(ent.get()))
+                v = int(float(e.get()))
             except ValueError:
                 v = int(fallback)
             v = max(1, v)
-            ent.delete(0, "end")
-            ent.insert(0, str(v))
+            e.delete(0, "end")
+            e.insert(0, str(v))
             return v
 
-        ra = _parse_int(entA, self.m.reach)
-        rt = _parse_int(entB, self.m.reach)
-        self.m.reach_agent_by_type[typ] = ra
-        self.m.reach_attr_by_type[typ] = rt
+        v = _parse_int(ent, self.m.reach)
+        if table == "attr":
+            self.m.influence_range_attr.setdefault(row_key, {})[col_key] = v
+        else:
+            self.m.influence_range_agent.setdefault(row_key, {})[col_key] = v
         self.m.calc_total_utility()
         self._refresh_reset_target_to_current()
         self.update_stats()
@@ -511,6 +540,8 @@ class CityUI:
 
     def set_view_layer_visible(self, on: bool):
         self.show_view = bool(on)
+        if not self.show_view:
+            self._hide_contrib_tooltip()
         self.canvas.itemconfig("zone", state=("normal" if self.show_view else "hidden"))
         self.canvas.itemconfig("dyn", state=("hidden" if self.show_view else "normal"))
         self.canvas.tag_raise(self._reach_tag)
@@ -520,8 +551,10 @@ class CityUI:
         if self.show_view and self.view_mode == "pubpriv":
             self.set_view_layer_visible(False)
             self.pp_btn.config(bg=UI_COLORS["panel_bg"], fg="white")
+            self._hide_contrib_tooltip()
             return
         self.view_mode = "pubpriv"
+        self._hide_contrib_tooltip()
         self.set_view_layer_visible(True)
         self.pp_btn.config(bg="#ffffff", fg="#000000")
         self.contrib_btn.config(bg=UI_COLORS["panel_bg"], fg="white")
@@ -531,6 +564,7 @@ class CityUI:
         if self.show_view and self.view_mode == "contrib":
             self.set_view_layer_visible(False)
             self.contrib_btn.config(bg=UI_COLORS["panel_bg"], fg="white")
+            self._hide_contrib_tooltip()
             return
         self.view_mode = "contrib"
         self.set_view_layer_visible(True)
@@ -561,9 +595,10 @@ class CityUI:
             self._hover_after = None
         self._hover_cell = (-1, -1)
         self.clear_reach_overlay()
+        self._hide_contrib_tooltip()
 
     def on_canvas_motion(self, e):
-        if not self.show_reach_overlay:
+        if not self.show_reach_overlay and not (self.show_view and self.view_mode == "contrib"):
             return
         if not self._is_canvas_under_pointer(e):
             self.on_canvas_leave()
@@ -571,6 +606,31 @@ class CityUI:
         if self._hover_after is not None:
             return
         self._hover_after = self.root.after(15, lambda: self._handle_hover(e))
+
+    def _show_contrib_tooltip(self, text: str, root_x: int, root_y: int):
+        """在 cell contribution 模式下显示满意度 tooltip"""
+        if self._contrib_tooltip is None:
+            self._contrib_tooltip = tk.Toplevel(self.root)
+            self._contrib_tooltip.wm_overrideredirect(True)
+            self._contrib_tooltip.wm_geometry("+0+0")
+            self._contrib_tooltip.configure(bg="#2a2a2a", highlightthickness=0)
+            self._contrib_tooltip_lbl = tk.Label(
+                self._contrib_tooltip, text="", fg="white", bg="#2a2a2a",
+                font=("Consolas", 10), padx=8, pady=4
+            )
+            self._contrib_tooltip_lbl.pack()
+        self._contrib_tooltip_lbl.config(text=text)
+        offset = 12
+        self._contrib_tooltip.wm_geometry(f"+{root_x + offset}+{root_y + offset}")
+        self._contrib_tooltip.deiconify()
+
+    def _hide_contrib_tooltip(self):
+        """隐藏 cell contribution 的 tooltip"""
+        if self._contrib_tooltip is not None:
+            try:
+                self._contrib_tooltip.withdraw()
+            except Exception:
+                pass
 
     def _handle_hover(self, e):
         self._hover_after = None
@@ -586,10 +646,17 @@ class CityUI:
             return
         self._hover_cell = (x, y)
         a = self.m.grid[x][y]
-        if a is None:
-            self.clear_reach_overlay()
-            return
-        self.draw_reach_overlay(x, y)
+
+        # Cell contribution 模式：悬停于代理格时显示满意度
+        if self.show_view and self.view_mode == "contrib":
+            if a is not None:
+                u = self.m.get_utility(a, x, y)
+                self._show_contrib_tooltip(f"Utility: {u:.2f}", e.x_root, e.y_root)
+            else:
+                self._hide_contrib_tooltip()
+
+        if self.show_reach_overlay:
+            self.draw_reach_overlay(x, y)
 
     def _diamond_poly_pixels(self, cx, cy, r):
         s = self.cell
@@ -602,21 +669,35 @@ class CityUI:
     def draw_reach_overlay(self, cx, cy):
         self.clear_reach_overlay()
         a = self.m.grid[cx][cy]
-        if a is None:
+        attr_type = self.m.attr_grid[cx][cy] if hasattr(self.m, "attr_grid") else None
+
+        if a is not None:
+            # 悬停代理：显示该代理自身的影响范围（能影响多远内的其他代理）
+            ra = max(int(self.m.influence_range_agent.get(a.type, {}).get(t, self.m.reach))
+                     for t in self.m.type_labels)
+            if ra > 0:
+                poly_a = self._diamond_poly_pixels(cx, cy, ra)
+                self.canvas.create_line(*poly_a, fill="#ffffff", width=3, tags=self._reach_tag)
+            s = self.cell
+            self.canvas.create_rectangle(
+                cx * s + 1, cy * s + 1, (cx + 1) * s - 1, (cy + 1) * s - 1,
+                outline="#ffffff", width=2, fill="", tags=self._reach_center_tag
+            )
+        elif attr_type is not None:
+            # 悬停吸引子：显示该吸引子对各类代理的影响范围（取最大）
+            r = max(int(self.m.influence_range_attr.get(attr_type, {}).get(t, self.m.reach))
+                    for t in self.m.type_labels)
+            if r > 0:
+                poly = self._diamond_poly_pixels(cx, cy, r)
+                self.canvas.create_line(*poly, fill="#aaaaaa", width=2, dash=(4, 3), tags=self._reach_tag)
+            s = self.cell
+            self.canvas.create_rectangle(
+                cx * s + 1, cy * s + 1, (cx + 1) * s - 1, (cy + 1) * s - 1,
+                outline="#aaaaaa", width=2, fill="", tags=self._reach_center_tag
+            )
+        else:
             return
-        ra = int(self.m.reach_agent_by_type.get(a.type, self.m.reach))
-        rt = int(self.m.reach_attr_by_type.get(a.type, self.m.reach))
-        if rt > 0:
-            poly_t = self._diamond_poly_pixels(cx, cy, rt)
-            self.canvas.create_line(*poly_t, fill="#777777", width=2, dash=(4, 3), tags=self._reach_tag)
-        if ra > 0:
-            poly_a = self._diamond_poly_pixels(cx, cy, ra)
-            self.canvas.create_line(*poly_a, fill="#ffffff", width=3, tags=self._reach_tag)
-        s = self.cell
-        self.canvas.create_rectangle(
-            cx * s + 1, cy * s + 1, (cx + 1) * s - 1, (cy + 1) * s - 1,
-            outline="#ffffff", width=2, fill="", tags=self._reach_center_tag
-        )
+
         self.canvas.tag_raise(self._reach_tag)
         self.canvas.tag_raise(self._reach_center_tag)
 
@@ -802,6 +883,28 @@ class CityUI:
             img.save(path, "PNG")
         except Exception as e:
             messagebox.showerror("Export Error", str(e))
+
+    def export_csharp(self):
+        """Export game logic as C# code for Grasshopper (Rhino)."""
+        if self._batch_running:
+            return
+        if len(self.m.agents) < 2:
+            messagebox.showwarning("Export C#", "Need at least 2 agents. Run RESET first.")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".cs",
+            filetypes=[("C# Script", "*.cs"), ("All Files", "*.*")],
+            initialfile="CityLab_Grasshopper.cs",
+        )
+        if not path:
+            return
+        try:
+            code = export_to_csharp(self.m)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(code)
+            messagebox.showinfo("Export C#", f"Exported to:\n{path}\n\nPaste into Grasshopper C# component for Rhino analysis.")
+        except Exception as e:
+            messagebox.showerror("Export C# Error", str(e))
 
     def run_n_steps(self):
         if self._batch_running:
