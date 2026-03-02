@@ -12,6 +12,10 @@ from config import (
     DEFAULT_PREF_ATTR,
     DEFAULT_PREF_AGENT,
     ROAD_TOPOLOGY_NAMES,
+    ORIGINAL_CITYLAB_ATTR_DEFS,
+    ORIGINAL_CITYLAB_TYPE_LABELS,
+    ORIGINAL_CITYLAB_DEFAULT_PREF_ATTR,
+    ORIGINAL_CITYLAB_DEFAULT_PREF_AGENT,
 )
 
 
@@ -27,8 +31,12 @@ class CityModel:
     Utility = Σ (Weight / ManhattanDistance) for attractors + nearby agents.
     Swap rules: pareto, greedy_total, greedy_both, greedy_1.
     """
+    # Standard layout keys used internally by apply_layout
+    _STANDARD_ATTR_KEYS = ["T", "P", "R", "W", "S", "H", "G"]
+
     def __init__(self, w=40, h=40, reach=6):
         self.w, self.h, self.reach = w, h, reach
+        self.use_original_citylab = False
 
         self.attr_keys = [k for (k, _name, _col) in ATTR_DEFS]
         self.attractors = {k: [] for k in self.attr_keys}
@@ -57,9 +65,10 @@ class CityModel:
         # influence_range_agent[src][tgt]: 代理类型src对代理类型tgt的影响范围
         self.influence_range_attr = {k: {t: int(reach) for t in self.type_labels} for k in self.attr_keys}
         self.influence_range_agent = {s: {t: int(reach) for t in self.type_labels} for s in self.type_labels}
-        # T(交通) 影响范围默认 20
+        # Transport 影响范围默认 20
+        transport_key = "transport" if self.use_original_citylab else "T"
         for t in self.type_labels:
-            self.influence_range_attr["T"][t] = 20
+            self.influence_range_attr.get(transport_key, {})[t] = 20
         self._ensure_influence_tables_complete()
 
         # Deep copy default prefs so UI can edit in place
@@ -111,11 +120,12 @@ class CityModel:
 
     def _get_attr_draw_order(self):
         """吸引子重叠时保留数量较少的：先绘制数量多的，后绘制数量少的。"""
+        road_key = "road" if self.use_original_citylab else "R"
         counts = {k: len([p for p in self.attractors.get(k, []) if 0 <= p[0] < self.w and 0 <= p[1] < self.h])
                   for k in self.attr_keys}
-        others = [k for k in self.attr_keys if k != "R"]
+        others = [k for k in self.attr_keys if k != road_key]
         others_sorted = sorted(others, key=lambda k: -counts.get(k, 0))
-        return ["R"] + others_sorted
+        return [road_key] + others_sorted
 
     def rebuild_attr_distance_fields(self):
         INF = 10**9
@@ -168,6 +178,42 @@ class CityModel:
         self.rebuild_attr_distance_fields()
         self.reset()
 
+    def switch_to_original_citylab(self):
+        """Switch to Original City Lab Game schema: 5 attractors, 4 agents."""
+        self.use_original_citylab = True
+        self.attr_keys = [k for (k, _name, _col) in ORIGINAL_CITYLAB_ATTR_DEFS]
+        self.type_labels = list(ORIGINAL_CITYLAB_TYPE_LABELS)
+        self.attractors = {k: [] for k in self.attr_keys}
+        self.pref_attr = {t: dict(ORIGINAL_CITYLAB_DEFAULT_PREF_ATTR.get(t, {})) for t in self.type_labels}
+        self.pref_agent = {t: dict(ORIGINAL_CITYLAB_DEFAULT_PREF_AGENT.get(t, {})) for t in self.type_labels}
+        self._ensure_pref_tables_complete()
+        self.influence_range_attr = {k: {t: int(self.reach) for t in self.type_labels} for k in self.attr_keys}
+        self.influence_range_agent = {s: {t: int(self.reach) for t in self.type_labels} for s in self.type_labels}
+        for t in self.type_labels:
+            self.influence_range_attr["transport"][t] = 20
+        self._ensure_influence_tables_complete()
+        INF = 10**9
+        self.dist_attr = {k: [[INF for _ in range(self.h)] for _ in range(self.w)] for k in self.attr_keys}
+        self.apply_layout(self.current_layout)
+
+    def switch_to_standard(self):
+        """Switch back to standard schema: 7 attractors, 7 agents."""
+        self.use_original_citylab = False
+        self.attr_keys = [k for (k, _name, _col) in ATTR_DEFS]
+        self.type_labels = list(TYPE_LABELS)
+        self.attractors = {k: [] for k in self.attr_keys}
+        self.pref_attr = {t: dict(DEFAULT_PREF_ATTR.get(t, {})) for t in self.type_labels}
+        self.pref_agent = {t: dict(DEFAULT_PREF_AGENT.get(t, {})) for t in self.type_labels}
+        self._ensure_pref_tables_complete()
+        self.influence_range_attr = {k: {t: int(self.reach) for t in self.type_labels} for k in self.attr_keys}
+        self.influence_range_agent = {s: {t: int(self.reach) for t in self.type_labels} for s in self.type_labels}
+        for t in self.type_labels:
+            self.influence_range_attr["T"][t] = 20
+        self._ensure_influence_tables_complete()
+        INF = 10**9
+        self.dist_attr = {k: [[INF for _ in range(self.h)] for _ in range(self.w)] for k in self.attr_keys}
+        self.apply_layout(self.current_layout)
+
 
     def is_attr(self, x, y):
         return self.attr_grid[x][y] is not None
@@ -178,6 +224,15 @@ class CityModel:
             self.grid[a.x][a.y] = a
 
     def _random_agent_type(self):
+        if self.use_original_citylab:
+            r = random.random()
+            if r < 0.55:
+                return "residential"
+            if r < 0.75:
+                return "office"
+            if r < 0.90:
+                return "shop"
+            return "cafe"
         r = random.random()
         if r < 0.55:
             return "Resi"
@@ -236,28 +291,29 @@ class CityModel:
             self.lock_total_utility_int(int(target_int))
 
     def apply_layout(self, typ: str):
-        self.attractors = {k: [] for k in self.attr_keys}
+        # Layout always uses standard keys internally
+        layout = {k: [] for k in self._STANDARD_ATTR_KEYS}
         cx, cy = self.w // 2, self.h // 2
 
         if typ == "Grid":
             for i in range(self.w):
                 for j in range(self.h):
                     if i % 8 == 0 or j % 8 == 0:
-                        self.attractors["R"].append((i, j))
+                        layout["R"].append((i, j))
             # T(交通)最多2个
             t1 = (max(1, min(self.w - 2, cx - 6)), max(1, min(self.h - 2, cy - 6)))
             t2 = (max(1, min(self.w - 2, cx + 6)), max(1, min(self.h - 2, cy + 6)))
             t3 = (max(1, min(self.w - 2, cx - 6)), max(1, min(self.h - 2, cy + 6)))
             t4 = (max(1, min(self.w - 2, cx + 6)), max(1, min(self.h - 2, cy - 6)))
-            self.attractors["T"] = [t1, t2]
+            layout["T"] = [t1, t2]
             # 公园、学校、医疗：原 t3,t4 转为 P、S 以补足种类
             px1, py1 = max(1, min(self.w - 2, cx - 6)), max(1, min(self.h - 2, cy - 6))
             px2, py2 = max(1, min(self.w - 2, cx + 6)), max(1, min(self.h - 2, cy + 6))
-            self.attractors["P"] = [(px1, py1), (px2, py2), t3]
-            self.attractors["S"] = [(max(0, cx - 8), cy), (min(self.w - 1, cx + 8), cy), t4]
-            self.attractors["H"] = [(cx, max(0, cy - 8)), (cx, min(self.h - 1, cy + 8))]
-            self.attractors["W"] = [(i, self.h - 1) for i in range(self.w)]
-            self.attractors["G"] = [(cx, cy), (cx, max(0, cy - 10))]
+            layout["P"] = [(px1, py1), (px2, py2), t3]
+            layout["S"] = [(max(0, cx - 8), cy), (min(self.w - 1, cx + 8), cy), t4]
+            layout["H"] = [(cx, max(0, cy - 8)), (cx, min(self.h - 1, cy + 8))]
+            layout["W"] = [(i, self.h - 1) for i in range(self.w)]
+            layout["G"] = [(cx, cy), (cx, max(0, cy - 10))]
 
         elif typ == "Radial":
             # 根据网格尺寸缩放半径，确保小网格也有完整吸引子环
@@ -268,40 +324,40 @@ class CityModel:
                 for j in range(self.h):
                     d = math.hypot(i - cx, j - cy)
                     if abs(d - r1) < tol or abs(d - r4) < tol or abs(i - cx) < 0.6 or abs(j - cy) < 0.6:
-                        self.attractors["R"].append((i, j))
+                        layout["R"].append((i, j))
                     if d < max(2, 3 * scale):
-                        self.attractors["P"].append((i, j))
+                        layout["P"].append((i, j))
                     if abs(d - r2) < tol:
-                        self.attractors["S"].append((i, j))
+                        layout["S"].append((i, j))
                     if abs(d - r3) < tol:
-                        self.attractors["H"].append((i, j))
+                        layout["H"].append((i, j))
                     if abs(d - r5) < tol:
-                        self.attractors["W"].append((i, j))
+                        layout["W"].append((i, j))
             # T(交通)最多2个：中心 + 一角；其余转为 G、S、H
-            self.attractors["T"] = [(cx, cy), (0, 0)]
-            self.attractors["G"] = [(cx, max(0, cy - 1)), (cx, min(self.h - 1, cy + 1)),
+            layout["T"] = [(cx, cy), (0, 0)]
+            layout["G"] = [(cx, max(0, cy - 1)), (cx, min(self.h - 1, cy + 1)),
                                     (self.w - 1, self.h - 1), (0, self.h - 1)]
-            self.attractors["S"] = self.attractors.get("S", []) + [(self.w - 1, 0)]
+            layout["S"] = layout.get("S", []) + [(self.w - 1, 0)]
 
         elif typ == "Organic":
             for _ in range(10):
                 x, y = random.randrange(self.w), random.randrange(self.h)
                 for _ in range(18):
-                    self.attractors["R"].append((x, y))
+                    layout["R"].append((x, y))
                     x = max(0, min(self.w - 1, x + random.randrange(3) - 1))
                     y = max(0, min(self.h - 1, y + random.randrange(3) - 1))
-                self.attractors["P"].append((x, y))
+                layout["P"].append((x, y))
             for _ in range(6):
-                self.attractors["S"].append((random.randrange(self.w), random.randrange(self.h)))
+                layout["S"].append((random.randrange(self.w), random.randrange(self.h)))
             for _ in range(4):
-                self.attractors["H"].append((random.randrange(self.w), random.randrange(self.h)))
+                layout["H"].append((random.randrange(self.w), random.randrange(self.h)))
             for _ in range(2):
-                self.attractors["T"].append((random.randrange(self.w), random.randrange(self.h)))
+                layout["T"].append((random.randrange(self.w), random.randrange(self.h)))
             for _ in range(3):
-                self.attractors["G"].append((random.randrange(self.w), random.randrange(self.h)))
+                layout["G"].append((random.randrange(self.w), random.randrange(self.h)))
             x, y = random.randrange(self.w), self.h - 2
             for _ in range(self.w * 2):
-                self.attractors["W"].append((x, y))
+                layout["W"].append((x, y))
                 x = max(0, min(self.w - 1, x + random.choice([-1, 0, 1])))
                 y = max(self.h // 2, min(self.h - 1, y + random.choice([-1, 0, 1])))
 
@@ -309,19 +365,19 @@ class CityModel:
             for i in range(self.w):
                 for yy in (cy - 1, cy + 1):
                     if 0 <= yy < self.h:
-                        self.attractors["R"].append((i, yy))
+                        layout["R"].append((i, yy))
                 for yy in (cy - 5, cy + 5):
                     if 0 <= yy < self.h:
-                        self.attractors["P"].append((i, yy))
+                        layout["P"].append((i, yy))
                 sy = cy - 8 if 0 <= cy - 8 < self.h else max(0, cy - 2)
                 hy = cy + 8 if 0 <= cy + 8 < self.h else min(self.h - 1, cy + 2)
                 if i % 12 == 0:
-                    self.attractors["S"].append((i, sy))
+                    layout["S"].append((i, sy))
                 if i % 12 == 6:
-                    self.attractors["H"].append((i, hy))
-            self.attractors["T"] = [(0, cy), (self.w - 1, cy)]
-            self.attractors["W"] = [(i, 0) for i in range(self.w)]
-            self.attractors["G"] = [(self.w // 4, cy), (self.w // 2, cy), (3 * self.w // 4, cy)]
+                    layout["H"].append((i, hy))
+            layout["T"] = [(0, cy), (self.w - 1, cy)]
+            layout["W"] = [(i, 0) for i in range(self.w)]
+            layout["G"] = [(self.w // 4, cy), (self.w // 2, cy), (3 * self.w // 4, cy)]
 
         elif typ == "Polycentric":
             # 根据网格尺寸缩放中心点，确保小网格也有有效吸引子
@@ -329,112 +385,128 @@ class CityModel:
             hubs = [(max(1, min(self.w - 2, int(hx * self.w / 40))),
                      max(1, min(self.h - 2, int(hy * self.h / 40)))) for hx, hy in base_hubs]
             # T(交通)最多2个：对角两角；G 需有独立位置避免被 S/H 覆盖
-            self.attractors["T"] = [(0, 0), (self.w - 1, self.h - 1)]
-            self.attractors["G"] = [(0, cy), (self.w - 1, cy)]
+            layout["T"] = [(0, 0), (self.w - 1, self.h - 1)]
+            layout["G"] = [(0, cy), (self.w - 1, cy)]
             for idx, (hx, hy) in enumerate(hubs):
-                self.attractors["G"].append((hx, hy))
+                layout["G"].append((hx, hy))
                 for dx in range(-3, 4):
                     for xx, yy in [(hx + dx, hy - 3), (hx + dx, hy + 3), (hx - 3, hy + dx), (hx + 3, hy + dx)]:
                         if 0 <= xx < self.w and 0 <= yy < self.h:
-                            self.attractors["R"].append((xx, yy))
+                            layout["R"].append((xx, yy))
                 for xx, yy in [(hx, hy + 1), (hx, hy - 1)]:
                     if 0 <= xx < self.w and 0 <= yy < self.h:
-                        self.attractors["P"].append((xx, yy))
+                        layout["P"].append((xx, yy))
                 if idx % 2 == 0:
-                    self.attractors["S"].append((hx, hy))
+                    layout["S"].append((hx, hy))
                 else:
-                    self.attractors["H"].append((hx, hy))
-            self.attractors["W"] = [(i, self.h - 1) for i in range(self.w)]
+                    layout["H"].append((hx, hy))
+            layout["W"] = [(i, self.h - 1) for i in range(self.w)]
 
         elif typ == "Superblock":
             for i in range(self.w):
                 for j in range(self.h):
                     if i % 14 == 0 or j % 14 == 0:
-                        self.attractors["R"].append((i, j))
+                        layout["R"].append((i, j))
                     if (i + 7) % 14 == 0 and (j + 7) % 14 == 0:
                         for di in (-1, 0, 1):
                             for dj in (-1, 0, 1):
                                 xx, yy = i + di, j + dj
                                 if 0 <= xx < self.w and 0 <= yy < self.h:
-                                    self.attractors["P"].append((xx, yy))
+                                    layout["P"].append((xx, yy))
             for i in range(7, self.w, 14):
                 for j in range(7, self.h, 14):
-                    self.attractors["S"].append((i, j))
+                    layout["S"].append((i, j))
             # S 需有独立位置避免被 T/H/G 覆盖（街区中心外）
             sx1 = max(1, min(self.w - 2, cx - 7))
             sy1 = max(1, min(self.h - 2, cy - 7))
-            self.attractors["S"].extend([(sx1, cy), (cx, sy1)])
+            layout["S"].extend([(sx1, cy), (cx, sy1)])
             for i in range(7, self.w, 28):
                 for j in range(7, self.h, 28):
-                    self.attractors["H"].append((i + 3 if i + 3 < self.w else i, j))
+                    layout["H"].append((i + 3 if i + 3 < self.w else i, j))
             # T(交通)最多2个，街区中心取前2个；其余转为 G、H 补足
             block_centers = [(i, j) for i in range(7, self.w, 14) for j in range(7, self.h, 14)
                             if 0 <= i < self.w and 0 <= j < self.h]
-            self.attractors["T"] = block_centers[:2] if len(block_centers) >= 2 else block_centers + [(cx, cy)]
-            self.attractors["W"] = [(self.w - 1, j) for j in range(self.h)]
-            self.attractors["G"] = [(cx, cy), (cx + 1 if cx + 1 < self.w else cx, cy)]
+            layout["T"] = block_centers[:2] if len(block_centers) >= 2 else block_centers + [(cx, cy)]
+            layout["W"] = [(self.w - 1, j) for j in range(self.h)]
+            layout["G"] = [(cx, cy), (cx + 1 if cx + 1 < self.w else cx, cy)]
             for pos in block_centers[2:4]:
-                self.attractors["G"].append(pos)
+                layout["G"].append(pos)
             for pos in block_centers[4:]:
-                self.attractors["H"].append(pos)
+                layout["H"].append(pos)
 
         elif typ == "Hybrid":
             for i in range(self.w):
                 for j in range(self.h):
                     if i < cx:
                         if random.random() < 0.05:
-                            self.attractors["R"].append((i, j))
+                            layout["R"].append((i, j))
                     else:
                         if i % 6 == 0 or j % 6 == 0:
-                            self.attractors["R"].append((i, j))
-            self.attractors["T"] = [(cx, cy), (self.w - 1, cy)]
-            self.attractors["P"] = [(i, i) for i in range(min(self.w, self.h)) if i % 2 == 0]
-            self.attractors["S"] = [(max(0, cx - 10), max(0, cy - 6)), (min(self.w - 1, cx + 6), min(self.h - 1, cy + 10))]
-            self.attractors["H"] = [(max(0, cx - 6), min(self.h - 1, cy + 10)), (min(self.w - 1, cx + 10), max(0, cy - 6))]
-            self.attractors["W"] = [(0, j) for j in range(self.h)]
-            self.attractors["G"] = [(cx, cy), (min(self.w - 1, cx + 12), cy)]
+                            layout["R"].append((i, j))
+            layout["T"] = [(cx, cy), (self.w - 1, cy)]
+            layout["P"] = [(i, i) for i in range(min(self.w, self.h)) if i % 2 == 0]
+            layout["S"] = [(max(0, cx - 10), max(0, cy - 6)), (min(self.w - 1, cx + 6), min(self.h - 1, cy + 10))]
+            layout["H"] = [(max(0, cx - 6), min(self.h - 1, cy + 10)), (min(self.w - 1, cx + 10), max(0, cy - 6))]
+            layout["W"] = [(0, j) for j in range(self.h)]
+            layout["G"] = [(cx, cy), (min(self.w - 1, cx + 12), cy)]
 
         self.current_layout = typ
+
+        # Convert to current schema if in original city lab mode
+        if self.use_original_citylab:
+            self.attr_keys = [k for (k, _name, _col) in ORIGINAL_CITYLAB_ATTR_DEFS]
+            self.attractors = {
+                "transport": list(layout.get("T", [])),
+                "public": list(layout.get("S", [])) + list(layout.get("H", [])) + list(layout.get("G", [])),
+                "road": list(layout.get("R", [])),
+                "waterfront": list(layout.get("W", [])),
+                "landscape": list(layout.get("P", [])),
+            }
+        else:
+            self.attr_keys = [k for (k, _name, _col) in ATTR_DEFS]
+            self.attractors = {k: list(layout.get(k, [])) for k in self.attr_keys}
+
         self._ensure_all_attractors_present()
         self.rebuild_attr_distance_fields()
         self.reset()
 
     def apply_road_topology(self, typ: str):
-        """仅替换道路(R)吸引子，其它吸引子保持不变。From Layout 时恢复城市布局自带的道路。"""
+        """仅替换道路吸引子，其它吸引子保持不变。From Layout 时恢复城市布局自带的道路。"""
         if typ not in ROAD_TOPOLOGY_NAMES:
             return
         self.road_topology = typ
         if typ == "From Layout":
             self.apply_layout(self.current_layout)
             return
+        road_key = "road" if self.use_original_citylab else "R"
         cx, cy = self.w // 2, self.h // 2
-        self.attractors["R"] = []
+        self.attractors[road_key] = []
 
         if typ == "Linear":
             # Single road: horizontal center line
             for i in range(self.w):
-                self.attractors["R"].append((i, cy))
+                self.attractors[road_key].append((i, cy))
 
         elif typ == "Parallel":
             # 3 parallel horizontal roads
             for i in range(self.w):
                 for yy in (cy - self.h // 6, cy, cy + self.h // 6):
                     if 0 <= yy < self.h:
-                        self.attractors["R"].append((i, yy))
+                        self.attractors[road_key].append((i, yy))
 
         elif typ == "Cross":
             # Horizontal + vertical crossing at center
             for i in range(self.w):
-                self.attractors["R"].append((i, cy))
+                self.attractors[road_key].append((i, cy))
             for j in range(self.h):
-                self.attractors["R"].append((cx, j))
+                self.attractors[road_key].append((cx, j))
 
         elif typ == "T-Junction":
             # Horizontal top bar + vertical stem down
             for i in range(self.w):
-                self.attractors["R"].append((i, cy))
+                self.attractors[road_key].append((i, cy))
             for j in range(cy, self.h):
-                self.attractors["R"].append((cx, j))
+                self.attractors[road_key].append((cx, j))
 
         elif typ == "Loop":
             # Rectangular loop around center
@@ -442,24 +514,33 @@ class CityModel:
             x1, x2 = max(0, cx - margin), min(self.w - 1, cx + margin)
             y1, y2 = max(0, cy - margin), min(self.h - 1, cy + margin)
             for i in range(x1, x2 + 1):
-                self.attractors["R"].append((i, y1))
-                self.attractors["R"].append((i, y2))
+                self.attractors[road_key].append((i, y1))
+                self.attractors[road_key].append((i, y2))
             for j in range(y1 + 1, y2):
-                self.attractors["R"].append((x1, j))
-                self.attractors["R"].append((x2, j))
+                self.attractors[road_key].append((x1, j))
+                self.attractors[road_key].append((x2, j))
 
     def _ensure_all_attractors_present(self):
         """确保每种吸引子至少有一个有效位置，避免部分城市布局吸引子不全。"""
         cx, cy = self.w // 2, self.h // 2
-        fallbacks = {
-            "T": (cx, cy),
-            "P": (max(0, cx - 1), cy),
-            "R": (0, cy),
-            "W": (0, self.h - 1),
-            "S": (cx, max(0, cy - 1)),
-            "H": (min(self.w - 1, cx + 1), cy),
-            "G": (cx, min(self.h - 1, cy + 1)),
-        }
+        if self.use_original_citylab:
+            fallbacks = {
+                "transport": (cx, cy),
+                "public": (cx, max(0, cy - 1)),
+                "road": (0, cy),
+                "waterfront": (0, self.h - 1),
+                "landscape": (max(0, cx - 1), cy),
+            }
+        else:
+            fallbacks = {
+                "T": (cx, cy),
+                "P": (max(0, cx - 1), cy),
+                "R": (0, cy),
+                "W": (0, self.h - 1),
+                "S": (cx, max(0, cy - 1)),
+                "H": (min(self.w - 1, cx + 1), cy),
+                "G": (cx, min(self.h - 1, cy + 1)),
+            }
         for k in self.attr_keys:
             lst = self.attractors.get(k, [])
             valid = [(x, y) for (x, y) in lst if 0 <= x < self.w and 0 <= y < self.h]
@@ -472,6 +553,17 @@ class CityModel:
                 self.attractors[k] = [(fx, fy)]
             else:
                 self.attractors[k] = [(cx, cy)]
+
+    def _agents_in_range(self, x: int, y: int, max_dist: int):
+        """生成曼哈顿距离<=max_dist内的代理（空间优化，避免遍历全部代理）"""
+        for dx in range(-max_dist, max_dist + 1):
+            rem = max_dist - abs(dx)
+            for dy in range(-rem, rem + 1):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < self.w and 0 <= ny < self.h:
+                    a = self.grid[nx][ny]
+                    if a is not None:
+                        yield a
 
     def get_utility(self, agent: Agent, x, y):
         """
@@ -490,8 +582,12 @@ class CityModel:
             if md <= r_attr:
                 u += pa[k] / max(md, 1)
 
-        # 其他代理：遍历所有代理，若其影响范围能覆盖到(x,y)，则计入
-        for nb in self.agents:
+        # 其他代理：仅遍历影响范围内的代理（空间优化）
+        max_r = max(
+            int(self.influence_range_agent.get(t, {}).get(my_type, self.reach))
+            for t in self.type_labels
+        )
+        for nb in self._agents_in_range(x, y, max_r):
             if nb.x == x and nb.y == y:
                 continue
             dist = abs(nb.x - x) + abs(nb.y - y)

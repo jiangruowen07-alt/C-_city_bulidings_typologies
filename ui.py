@@ -17,6 +17,12 @@ from config import (
     ROAD_TOPOLOGY_NAMES,
     SWAP_RULE_OPTIONS,
     TOOLS,
+    ORIGINAL_CITYLAB_ATTR_DEFS,
+    ORIGINAL_CITYLAB_TYPE_LABELS,
+    ORIGINAL_CITYLAB_AGENT_COLORS,
+    ORIGINAL_CITYLAB_TOOLS,
+    ORIGINAL_CITYLAB_PP_AGENT_RANK,
+    ORIGINAL_CITYLAB_PP_ATTR_RANK,
 )
 from model import Agent, CityModel
 from export_csharp import export_to_csharp
@@ -30,9 +36,7 @@ class CityUI:
         self.cell = 15
 
         self.colors = dict(UI_COLORS)
-        self.colors.update(AGENT_COLORS)
-        for k, _name, col in ATTR_DEFS:
-            self.colors[k] = col
+        self._refresh_colors()
 
         self.attr_item = {}
         self.agent_item = {}
@@ -41,8 +45,7 @@ class CityUI:
         self.zone_item = {}
 
         self.pp_bin_colors = dict(PP_BIN_COLORS)
-        self.pp_agent_rank = dict(PP_AGENT_RANK)
-        self.pp_attr_rank = dict(PP_ATTR_RANK)
+        self._refresh_pp_ranks()
         self.view_agent_first = True
 
         self.contrib_cache = [[0.0 for _ in range(self.m.h)] for _ in range(self.m.w)]
@@ -52,6 +55,7 @@ class CityUI:
         self.util_history = []
         self.chart_max_points = 240
         self.chart_padding = 10
+        self.contrib_rebuild_interval = 30  # 降低 contrib 缓存刷新频率以减轻卡顿
 
         self.show_reach_overlay = True
         self._hover_cell = (-1, -1)
@@ -82,6 +86,46 @@ class CityUI:
 
         self.root.after(0, self.boot)
         self.loop()
+
+    def _refresh_colors(self):
+        """Update colors from current schema (standard or original city lab)."""
+        self.colors.clear()
+        self.colors.update(UI_COLORS)
+        if self.m.use_original_citylab:
+            self.colors.update(ORIGINAL_CITYLAB_AGENT_COLORS)
+            for k, _name, col in ORIGINAL_CITYLAB_ATTR_DEFS:
+                self.colors[k] = col
+        else:
+            self.colors.update(AGENT_COLORS)
+            for k, _name, col in ATTR_DEFS:
+                self.colors[k] = col
+
+    def _refresh_pp_ranks(self):
+        """Update public/private rank mappings for current schema."""
+        if self.m.use_original_citylab:
+            self.pp_agent_rank = dict(ORIGINAL_CITYLAB_PP_AGENT_RANK)
+            self.pp_attr_rank = dict(ORIGINAL_CITYLAB_PP_ATTR_RANK)
+        else:
+            self.pp_agent_rank = dict(PP_AGENT_RANK)
+            self.pp_attr_rank = dict(PP_ATTR_RANK)
+
+    def _get_tools(self):
+        """Get tools for current schema."""
+        return ORIGINAL_CITYLAB_TOOLS if self.m.use_original_citylab else TOOLS
+
+    def _rebuild_tool_buttons(self):
+        """Rebuild infrastructure tool buttons for current schema."""
+        for w in self.tool_frame.winfo_children():
+            w.destroy()
+        self.tool_buttons = {}
+        tools = self._get_tools()
+        for i, (label, key) in enumerate(tools):
+            b = tk.Button(self.tool_frame, text=label, command=lambda k=key: self.set_tool(k),
+                          bg="#ffffff" if key == "None" else UI_COLORS["panel_bg"],
+                          fg="#000" if key == "None" else "white", relief="groove")
+            b.grid(row=0, column=i, sticky="ew", padx=2, pady=2)
+            self.tool_buttons[key] = b
+            self.tool_frame.grid_columnconfigure(i, weight=1)
 
     def _is_canvas_under_pointer(self, e) -> bool:
         w = self.root.winfo_containing(e.x_root, e.y_root)
@@ -227,16 +271,9 @@ class CityUI:
 
         tk.Label(panel, text="Infrastructure Tools", fg="#888", bg=UI_COLORS["panel_bg"],
                  font=("Consolas", 9, "bold")).pack(anchor="w")
-        tf = tk.Frame(panel, bg=UI_COLORS["panel_bg"])
-        tf.pack(fill="x", pady=(6, 12))
-        self.tool_buttons = {}
-        for i, (label, key) in enumerate(TOOLS):
-            b = tk.Button(tf, text=label, command=lambda k=key: self.set_tool(k),
-                          bg="#ffffff" if key == "None" else UI_COLORS["panel_bg"],
-                          fg="#000" if key == "None" else "white", relief="groove")
-            b.grid(row=0, column=i, sticky="ew", padx=2, pady=2)
-            self.tool_buttons[key] = b
-            tf.grid_columnconfigure(i, weight=1)
+        self.tool_frame = tk.Frame(panel, bg=UI_COLORS["panel_bg"])
+        self.tool_frame.pack(fill="x", pady=(6, 12))
+        self._rebuild_tool_buttons()
 
         self.pp_btn = tk.Button(panel, text="PUBLIC / PRIVATE VIEW (4 BINS)",
                                 command=self.toggle_pubpriv_view,
@@ -252,6 +289,11 @@ class CityUI:
                                    command=self.toggle_reach_overlay,
                                    bg="#ffffff", fg="#000000", relief="groove")
         self.reach_btn.pack(fill="x", pady=(0, 10))
+
+        self.original_citylab_btn = tk.Button(panel, text="原始city lab game (Original City Lab Game)",
+                                             command=self.toggle_original_citylab,
+                                             bg=UI_COLORS["panel_bg"], fg="white", relief="groove")
+        self.original_citylab_btn.pack(fill="x", pady=(0, 10))
 
         tk.Label(panel, text="Legend (Color + Shape)", fg="#888", bg=UI_COLORS["panel_bg"],
                  font=("Consolas", 9, "bold")).pack(anchor="w")
@@ -320,13 +362,18 @@ class CityUI:
 
         tk.Label(parent, text="Attractors", fg="#aaa", bg=UI_COLORS["box_bg"],
                  font=("Consolas", 9, "bold")).pack(anchor="w", padx=10, pady=(8, 2))
-        for k, name, _col in ATTR_DEFS:
-            row_item(self.colors[k], name, shape="rect")
+        attr_defs = ORIGINAL_CITYLAB_ATTR_DEFS if self.m.use_original_citylab else ATTR_DEFS
+        for k, name, _col in attr_defs:
+            row_item(self.colors.get(k, "#fff"), name, shape="rect")
         tk.Label(parent, text="Agents", fg="#aaa", bg=UI_COLORS["box_bg"],
                  font=("Consolas", 9, "bold")).pack(anchor="w", padx=10, pady=(10, 2))
-        for k, name in [("Resi", "Residential"), ("Firm", "Company"), ("Shop", "Retail"), ("Cafe", "Cafe"),
-                        ("Hotel", "Hotel"), ("Restaurant", "Restaurant"), ("Clinic", "Clinic")]:
-            row_item(self.colors[k], name, shape="oval", outline="#fff")
+        if self.m.use_original_citylab:
+            agent_items = [("residential", "Residential"), ("office", "Office"), ("shop", "Shop"), ("cafe", "Cafe")]
+        else:
+            agent_items = [("Resi", "Residential"), ("Firm", "Company"), ("Shop", "Retail"), ("Cafe", "Cafe"),
+                          ("Hotel", "Hotel"), ("Restaurant", "Restaurant"), ("Clinic", "Clinic")]
+        for k, name in agent_items:
+            row_item(self.colors.get(k, "#fff"), name, shape="oval", outline="#fff")
         tk.Label(parent, text="Public / Private View (4 bins)", fg="#aaa", bg=UI_COLORS["box_bg"],
                  font=("Consolas", 9, "bold")).pack(anchor="w", padx=10, pady=(10, 2))
         row_item(self.pp_bin_colors["white"], "Bin 1: Public (white)", shape="rect", outline="#111")
@@ -582,6 +629,27 @@ class CityUI:
         if not self.show_reach_overlay:
             self.clear_reach_overlay()
 
+    def toggle_original_citylab(self):
+        """Switch between standard and Original City Lab Game schema."""
+        if self._batch_running:
+            return
+        if self.m.use_original_citylab:
+            self.m.switch_to_standard()
+        else:
+            self.m.switch_to_original_citylab()
+        self._refresh_colors()
+        self._refresh_pp_ranks()
+        self._rebuild_tool_buttons()
+        self.build_legend(self.legend_frame)
+        self.build_matrices()
+        self.original_citylab_btn.config(
+            bg="#ffffff" if self.m.use_original_citylab else UI_COLORS["panel_bg"],
+            fg="#000000" if self.m.use_original_citylab else "white"
+        )
+        self.set_tool("None")
+        self.util_history.clear()
+        self.rebuild_all()
+
     def clear_reach_overlay(self):
         self.canvas.delete(self._reach_tag)
         self.canvas.delete(self._reach_center_tag)
@@ -786,7 +854,7 @@ class CityUI:
             itm = self.agent_item.pop(id(a), None)
             if itm:
                 self.canvas.delete(itm)
-        if self.m.stats["steps"] % 10 == 0:
+        if self.m.stats["steps"] % 20 == 0:
             self.m.calc_total_utility()
             self.sample_chart()
         if swapped:
@@ -797,7 +865,7 @@ class CityUI:
                     self.update_view_cell(*old1)
                 if old2:
                     self.update_view_cell(*old2)
-        if self.show_view and self.view_mode == "contrib" and (self.m.stats["steps"] % 10 == 0):
+        if self.show_view and self.view_mode == "contrib" and (self.m.stats["steps"] % self.contrib_rebuild_interval == 0):
             self.rebuild_contrib_cache()
             self.refresh_view_full()
         self.update_stats()
@@ -944,7 +1012,7 @@ class CityUI:
                 if old2:
                     self._batch_dirty.add(old2)
         self._batch_remaining -= chunk
-        if self.m.stats["steps"] % 10 == 0:
+        if self.m.stats["steps"] % 20 == 0:
             self.m.calc_total_utility()
         for a in self.m.agents:
             item = self.agent_item.get(id(a))
@@ -1058,7 +1126,7 @@ class CityUI:
         self.sac_val.set(f"{self.m.stats['sacrificed']:,}")
 
     def sample_chart(self, force=False):
-        if force or (self.m.stats["steps"] % 10 == 0):
+        if force or (self.m.stats["steps"] % 20 == 0):
             v = float(self.m.stats["totalUtility"])
             if force or len(self.util_history) == 0 or self.util_history[-1] != v:
                 self.util_history.append(v)
@@ -1172,7 +1240,7 @@ class CityUI:
                         self.canvas.delete(itm)
                 if swapped:
                     swapped_agents.append((a1, a2, old1, old2))
-            if self.m.stats["steps"] % 10 == 0:
+            if self.m.stats["steps"] % 20 == 0:
                 self.m.calc_total_utility()
                 self.sample_chart()
             dirty = set() if (self.show_view and self.view_mode == "pubpriv") else None
@@ -1189,7 +1257,7 @@ class CityUI:
                     for (cx, cy) in dirty:
                         self.update_view_cell(cx, cy)
                 else:
-                    if self.m.stats["steps"] % 10 == 0:
+                    if self.m.stats["steps"] % self.contrib_rebuild_interval == 0:
                         self.rebuild_contrib_cache()
                         self.refresh_view_full()
             self.update_stats()

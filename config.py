@@ -73,7 +73,7 @@ AGENT_COLORS = {
     "Resi": "#063f76",
     "Firm": "#b26d5d",
     "Shop": "#d3b09d",
-    "Cafe": "#a99f83",
+    "Cafe": "#9a8fa8",
     "Hotel": "#698e6c",
     "Restaurant": "#ebead8",
     "Clinic": "#8ba3c7",
@@ -112,3 +112,65 @@ TOOLS = [
     ("HEALTH", "H"),
     ("GOV", "G"),
 ]
+
+# -------------------- ORIGINAL CITY LAB GAME (5 attractors, 4 agents) --------------------
+# Attractors: transport, public, road, waterfront, landscape
+# Colors: transport=#ffffff, public=#7a507e(school), road=#333333, waterfront=#89adcd, landscape=#4d8047(park)
+ORIGINAL_CITYLAB_ATTR_DEFS = [
+    ("transport", "Transport", "#ffffff"),
+    ("public", "Public", "#7a507e"),
+    ("road", "Road", "#333333"),
+    ("waterfront", "Waterfront", "#89adcd"),
+    ("landscape", "Landscape", "#4d8047"),
+]
+
+# Agents: residential, office, shop, cafe
+# Colors: residential=#063f76, office=#b26d5d(company), shop=#d3b09d(retail), cafe=#9a8fa8(low-sat purple)
+ORIGINAL_CITYLAB_TYPE_LABELS = [
+    "residential", "office", "shop", "cafe",
+]
+
+ORIGINAL_CITYLAB_DEFAULT_PREF_ATTR = {
+    "residential": {"transport": 3.5, "public": 4.0, "road": -2.0, "waterfront": 4.5, "landscape": 5.0},
+    "office": {"transport": 5.0, "public": 6.0, "road": 2.0, "waterfront": 1.0, "landscape": 1.0},
+    "shop": {"transport": 5.0, "public": 1.0, "road": 2.0, "waterfront": 2.0, "landscape": 4.0},
+    "cafe": {"transport": 2.0, "public": 2.0, "road": -1.0, "waterfront": 4.0, "landscape": 5.0},
+}
+
+ORIGINAL_CITYLAB_DEFAULT_PREF_AGENT = {
+    "residential": {"residential": 2.0, "office": -1.0, "shop": 3.0, "cafe": 4.0},
+    "office": {"residential": 1.0, "office": 3.0, "shop": 4.0, "cafe": 2.0},
+    "shop": {"residential": 2.0, "office": 4.0, "shop": 1.0, "cafe": 3.0},
+    "cafe": {"residential": 4.0, "office": 2.0, "shop": 3.0, "cafe": -1.0},
+}
+
+ORIGINAL_CITYLAB_AGENT_COLORS = {
+    "residential": "#063f76",
+    "office": "#b26d5d",
+    "shop": "#d3b09d",
+    "cafe": "#9a8fa8",
+}
+
+ORIGINAL_CITYLAB_TOOLS = [
+    ("VIEW", "None"),
+    ("ROAD", "road"),
+    ("LANDSCAPE", "landscape"),
+    ("TRANS", "transport"),
+    ("WATER", "waterfront"),
+    ("PUBLIC", "public"),
+]
+
+ORIGINAL_CITYLAB_PP_AGENT_RANK = {
+    "shop": "white",
+    "cafe": "white",
+    "office": "dgray",
+    "residential": "black",
+}
+
+ORIGINAL_CITYLAB_PP_ATTR_RANK = {
+    "landscape": "white",
+    "waterfront": "white",
+    "road": "white",
+    "transport": "lgray",
+    "public": "dgray",
+}
