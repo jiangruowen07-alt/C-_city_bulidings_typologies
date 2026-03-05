@@ -1,7 +1,7 @@
 // CITY LAB - 以物换物 游戏逻辑 (单文件 C#)
 // Grasshopper C# 组件 - GH_ScriptInstance 格式
 // Inputs: W, H, Reset, Run, SwapCount, Layout, SwapMode, RoadTopology
-// Outputs: A=Agent点位, B=Agent类型, C=总效用, D=统计信息, E=吸引子点位
+// Outputs: A=地块Polyline, B=邻接线, C=中心点, D=每块颜色, E=状态文字
 
 #region Usings
 using System;
@@ -91,15 +91,15 @@ public class Script_Instance : GH_ScriptInstance
             }
         }
 
-        // 3. Prepare Visual Outputs
+        // 3. Prepare Visual Outputs (polyline parcel version)
         double scale = 1.0;
-        A = _model.GetAgentPoints(scale);
-        B = _model.GetAgentTypes();
-        C = _model.TotalUtility;
-        D = string.Format("SOCIAL VALUE: {0:F2}\nTRADES: {1}\nSTEPS: {2}\nACCEPTED: {3}\nREJECTED: {4}\nPARCELS: {5}\nSTATUS: {6}",
+        A = _model.GetCellPolylines(scale);
+        B = _model.GetDualGraphEdges(scale);
+        C = _model.GetCellCenters(scale);
+        D = _model.GetCellColors();
+        E = string.Format("SOCIAL VALUE: {0:F2}\nTRADES: {1}\nSTEPS: {2}\nACCEPTED: {3}\nREJECTED: {4}\nPARCELS: {5}\nSTATUS: {6}",
             _model.TotalUtility, successfulSwaps, _model.Steps, _model.Accepted, _model.Rejected,
             _model.Agents.Count, run ? "RUNNING (Safe)" : "STOPPED");
-        E = _model.GetAttractorPoints(scale);
     }
 
     #region Agent
@@ -592,6 +592,79 @@ public class Script_Instance : GH_ScriptInstance
             return pts;
         }
         public List<string> GetAgentTypes() { return Agents.Select(a => a.Type).ToList(); }
+
+        public List<Polyline> GetCellPolylines(double scale)
+        {
+            var list = new List<Polyline>();
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    var pts = new List<Point3d> {
+                        new Point3d(x * scale, y * scale, 0),
+                        new Point3d((x + 1) * scale, y * scale, 0),
+                        new Point3d((x + 1) * scale, (y + 1) * scale, 0),
+                        new Point3d(x * scale, (y + 1) * scale, 0),
+                        new Point3d(x * scale, y * scale, 0)
+                    };
+                    list.Add(new Polyline(pts));
+                }
+            return list;
+        }
+        public List<Point3d> GetCellCenters(double scale)
+        {
+            var list = new List<Point3d>();
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                    list.Add(new Point3d((x + 0.5) * scale, (y + 0.5) * scale, 0));
+            return list;
+        }
+        public List<Line> GetDualGraphEdges(double scale)
+        {
+            var list = new List<Line>();
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    var c = new Point3d((x + 0.5) * scale, (y + 0.5) * scale, 0);
+                    if (x + 1 < W)
+                    {
+                        var cr = new Point3d((x + 1.5) * scale, (y + 0.5) * scale, 0);
+                        list.Add(new Line(c, cr));
+                    }
+                    if (y + 1 < H)
+                    {
+                        var cu = new Point3d((x + 0.5) * scale, (y + 1.5) * scale, 0);
+                        list.Add(new Line(c, cu));
+                    }
+                }
+            return list;
+        }
+        public List<Color> GetCellColors()
+        {
+            var agentColors = new Dictionary<string, Color> {
+                {"Resi", Color.FromArgb(6, 63, 118)},
+                {"Firm", Color.FromArgb(178, 109, 93)},
+                {"Shop", Color.FromArgb(211, 176, 157)},
+                {"Cafe", Color.FromArgb(169, 159, 131)},
+                {"Hotel", Color.FromArgb(105, 142, 108)},
+                {"Restaurant", Color.FromArgb(235, 234, 216)},
+                {"Clinic", Color.FromArgb(139, 163, 199)}
+            };
+            Color black = Color.Black;
+            Color darkGray = Color.FromArgb(64, 64, 64);
+            var list = new List<Color>();
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    if (AttrGrid[x, y] != null)
+                        list.Add(darkGray);
+                    else if (Grid[x, y] != null)
+                        list.Add(agentColors.ContainsKey(Grid[x, y].Type) ? agentColors[Grid[x, y].Type] : Color.Gray);
+                    else
+                        list.Add(black);
+                }
+            return list;
+        }
+
         public List<Point3d> GetAttractorPoints(double scale)
         {
             var pts = new List<Point3d>();
