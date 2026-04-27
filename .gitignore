@@ -1,2 +1,8 @@
 __pycache__/
 *.pyc
+
+# .NET
+CityLab/bin/
+CityLab/obj/
+*.user
+.vs/

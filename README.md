@@ -8,12 +8,16 @@
 
 ## 运行 / Run
 
+需安装 [.NET 8 SDK](https://dotnet.microsoft.com/download)。
+
 ```bash
-pip install -r requirements.txt
-python main.py
+cd CityLab
+dotnet run
 ```
 
-**依赖 Dependencies**：Python 3.x、tkinter、Pillow（用于导出 PNG / for PNG export）
+或发布为可执行文件后运行 `CityLab.exe`。
+
+**依赖 Dependencies**：Windows（WinForms）、.NET 8
 
 ---
 
@@ -32,28 +36,27 @@ python main.py
 
 ## 项目结构 / Project Structure
 
-| 文件 File | 说明 Description |
+| 路径 Path | 说明 Description |
 |-----------|-----------------|
-| `main.py` | 入口，启动 40×40 网格与 6 格影响半径 / Entry point, 40×40 grid, reach=6 |
-| `model.py` | 模拟逻辑：Agent、效用、交换、距离场、布局生成 / Simulation: agents, utility, swaps, distance fields, layouts |
-| `ui.py` | Tkinter 界面：画布、工具、偏好矩阵、图表、导出 / UI: canvas, tools, preference matrices, chart, export |
-| `config.py` | 吸引子定义、Agent 偏好、颜色、布局名、交换规则、道路拓扑 / Attractors, preferences, colors, layouts, swap rules, road topology |
-| `requirements.txt` | 依赖：Pillow / Dependencies: Pillow |
+| `CityLab/Program.cs` | 程序入口 / Application entry |
+| `CityLab/CityModel.cs` | 模拟逻辑 / Simulation: agents, utility, swaps, distance fields, layouts |
+| `CityLab/CityAppForm*.cs`、`CityGridView.cs` | WinForms 界面与画布 / UI and grid canvas |
+| `CityLab/Config.cs` | 吸引子、偏好、颜色、布局、交换规则、道路拓扑 / Config |
 
 ---
 
 ## 配置 / Configuration
 
-在 `config.py` 中可修改 / Editable in `config.py`:
+在 `CityLab/Config.cs` 中可修改 / Editable in `CityLab/Config.cs`:
 
-| 变量 Variable | 中文 | English |
+| 符号 Symbol | 中文 | English |
 |---------------|------|---------|
-| `ATTR_DEFS` | 吸引子键、显示名、颜色 | Attractor keys, display names, colors |
-| `DEFAULT_PREF_ATTR` | 各 Agent 对吸引子的偏好 | Agent → attractor preferences |
-| `DEFAULT_PREF_AGENT` | 各 Agent 之间的邻近偏好 | Agent → agent proximity preferences |
-| `SWAP_RULE_OPTIONS` | 可选的交换规则 | Swap rule options |
-| `LAYOUT_NAMES` | 预设布局列表 | Layout presets |
-| `ROAD_TOPOLOGY_NAMES` | 道路拓扑预设 | Road topology presets |
+| `AttrDefs` | 吸引子键、显示名、颜色 | Attractor keys, names, colors |
+| `DefaultPrefAttr` | 各 Agent 对吸引子的偏好 | Agent → attractor preferences |
+| `DefaultPrefAgent` | 各 Agent 之间的邻近偏好 | Agent → agent proximity preferences |
+| `SwapRuleOptions` | 可选的交换规则 | Swap rule options |
+| `LayoutNames` | 预设布局列表 | Layout presets |
+| `RoadTopologyNames` | 道路拓扑预设 | Road topology presets |
 
 ---
 
@@ -63,7 +66,7 @@ python main.py
 |--------------|------|---------|
 | **工具** | VIEW、ROAD、PARK、TRANS、WATER、SCHOOL、HEALTH、GOV，用于在网格上放置吸引子 | Tools to place attractors on the grid |
 | **视图** | 公/私四档视图、单元满意度视图 | Public/private 4-bin view, cell satisfaction view |
-| **运行** | 单步 / 连续运行 / 批量运行（RUN N STEPS + GO） | Step / continuous / batch run (RUN N STEPS + GO) |
+| **运行** | 单步 / 连续运行 / 批量运行（RUN N + GO） | Step / continuous / batch run (RUN N + GO) |
 | **偏好矩阵** | 可编辑 Agent 对吸引子、对其他 Agent 的偏好，以及影响范围矩阵（吸引子→代理、代理→代理） | Editable Agent→Attractor, Agent→Agent preferences, and influence range matrices (attr→agent, agent→agent) |
-| **导出** | EXPORT PNG 将当前城市场地导出为 PNG 图片（程序化渲染，支持普通视图与公私有/满意度视图） | Export current city as PNG (programmatic render, supports all view modes) |
-| **影响范围叠加** | 悬停 Agent 时显示能影响到它的源的最大范围（实线=代理，虚线=吸引子） | Hover over agent to show max influence range from sources (solid=agents, dashed=attractors) |
+| **导出** | EXPORT PNG 将当前城市场地导出为 PNG 图片 | Export current city as PNG |
+| **影响范围叠加** | 悬停 Agent 时显示能影响到它的源的最大范围 | Hover over agent to show max influence range from sources |
