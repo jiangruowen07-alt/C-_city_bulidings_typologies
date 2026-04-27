@@ -8,6 +8,10 @@ namespace CityLab;
 
 public sealed class BuildingModel
 {
+    /// <summary>建筑网格边长钳制：最小 2、最大 5（UI 仅提供 3–5）。</summary>
+    public const int GridSizeMin = 2;
+    public const int GridSizeMax = 5;
+
     /// <summary>绿地，与城市吸引子 P（Park）同一键，便于与配色表对齐。</summary>
     public const string Park = "P";
     public static readonly string[] TypeCycle = [Park, "Resi", "Firm", "Cafe", "Shop"];
@@ -24,6 +28,9 @@ public sealed class BuildingModel
     public double NeighborWeight = 1.0;
     public double MutateStepChance = 0.22;
 
+    /// <summary>当前网格中数量最多的非绿地代理类型；同数时由随机数决定。仅绿地时不为 null 的无意义值——为 null。</summary>
+    public string? MainAgentType { get; private set; }
+
     public BuildingModel(int w, int h, Random? rng = null)
     {
         _rng = rng ?? new Random();
@@ -32,8 +39,8 @@ public sealed class BuildingModel
 
     public void SetSize(int w, int h)
     {
-        w = Math.Clamp(w, 2, 64);
-        h = Math.Clamp(h, 2, 64);
+        w = Math.Clamp(w, GridSizeMin, GridSizeMax);
+        h = Math.Clamp(h, GridSizeMin, GridSizeMax);
         W = w;
         H = h;
         Grid = new Agent[W, H];
@@ -54,9 +61,41 @@ public sealed class BuildingModel
         Stats.Sacrificed = 0;
         UtilityBias = 0;
         CalcTotalUtility();
+        RefreshMainAgentType();
     }
 
     string RandomInitialType() => TypeCycle[_rng.Next(TypeCycle.Length)];
+
+    /// <summary>统计各非绿地代理子数量，取最大；绿地不参与。平局时随机择一。</summary>
+    public void RefreshMainAgentType()
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var t in BuildingFunctionTypes)
+            counts[t] = 0;
+        foreach (var a in Agents)
+        {
+            if (a.Type == Park) continue;
+            if (counts.TryGetValue(a.Type, out var c))
+                counts[a.Type] = c + 1;
+        }
+        var max = 0;
+        foreach (var c in counts.Values)
+            if (c > max) max = c;
+        if (max == 0)
+        {
+            MainAgentType = null;
+            return;
+        }
+        var top = new List<string>();
+        foreach (var t in BuildingFunctionTypes)
+        {
+            if (counts[t] == max) top.Add(t);
+        }
+        MainAgentType = top.Count == 1 ? top[0] : top[_rng.Next(top.Count)];
+    }
+
+    /// <summary>与「黑白视图」开启时黑格数一致：非绿地（非 P）的格子数。</summary>
+    public int CountBlackCellsBwView() => Agents.Count(a => a.Type != Park);
 
     public void UpdateGrid()
     {
@@ -160,6 +199,7 @@ public sealed class BuildingModel
             a.Type = BuildingFunctionTypes[_rng.Next(BuildingFunctionTypes.Length)];
             UpdateGrid();
             Stats.Accepted++;
+            RefreshMainAgentType();
             return new StepResult(false, a, null, (a.X, a.Y), null, Array.Empty<Agent>());
         }
         if (bldCells.Count > 0)
@@ -168,6 +208,7 @@ public sealed class BuildingModel
             a.Type = Park;
             UpdateGrid();
             Stats.Accepted++;
+            RefreshMainAgentType();
             return new StepResult(false, a, null, (a.X, a.Y), null, Array.Empty<Agent>());
         }
         return new StepResult(false, null, null, null, null, Array.Empty<Agent>());
@@ -217,6 +258,7 @@ public sealed class BuildingModel
             Grid[x1, y1] = a2;
             Grid[x2, y2] = a1;
             Stats.Accepted++;
+            RefreshMainAgentType();
             return new StepResult(true, a1, a2, (x1, y1), (x2, y2), Array.Empty<Agent>());
         }
         Stats.Rejected++;
@@ -256,6 +298,7 @@ public sealed class BuildingModel
         CalcTotalUtility();
         if (targetInt.HasValue)
             LockTotalUtilityInt(targetInt.Value);
+        RefreshMainAgentType();
     }
 
     public void Clear()
@@ -268,6 +311,7 @@ public sealed class BuildingModel
         Stats.Rejected = 0;
         Stats.Sacrificed = 0;
         CalcTotalUtility();
+        RefreshMainAgentType();
     }
 
     public static string NextTypeCyclic(string t)
@@ -275,5 +319,19 @@ public sealed class BuildingModel
         var i = Array.IndexOf(TypeCycle, t);
         if (i < 0) return TypeCycle[0];
         return TypeCycle[(i + 1) % TypeCycle.Length];
+    }
+
+    /// <summary>与「黑白视图」一致：黑=非 P，白=绿地。仅 3×3 场用于与城市格内 3×3 同构。</summary>
+    public bool[,]? TryGetBlackWhiteMask3x3()
+    {
+        if (W != 3 || H != 3) return null;
+        var m = new bool[3, 3];
+        for (var x = 0; x < 3; x++)
+            for (var y = 0; y < 3; y++)
+            {
+                var a = Grid[x, y];
+                m[x, y] = a != null && a.Type != Park;
+            }
+        return m;
     }
 }

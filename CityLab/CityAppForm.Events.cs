@@ -227,6 +227,7 @@ public sealed partial class CityAppForm
             a.Type = BuildingModel.NextTypeCyclic(a.Type);
             B.UpdateGrid();
             B.CalcTotalUtility();
+            B.RefreshMainAgentType();
             _resetTarget = (int)B.Stats.TotalUtility;
             UpdateStats(); SampleChart(true);
             _gridView.Invalidate();
@@ -400,12 +401,7 @@ public sealed partial class CityAppForm
                     }
                 }
                 foreach (var a in M.Agents)
-                {
-                    var cx = a.X * cell + cell / 2f; var cy = a.Y * cell + cell / 2f; var r = cell * 0.35f;
-                    using var br = new SolidBrush(ColorForAgent(a.Type));
-                    g2.FillEllipse(br, cx - r, cy - r, 2 * r, 2 * r);
-                    g2.DrawEllipse(Pens.White, cx - r, cy - r, 2 * r, 2 * r);
-                }
+                    DrawCityAgentSymbol(g2, a, cell);
             }
             var gc = _colors["grid"];
             using (var p = new Pen(gc, 1f))

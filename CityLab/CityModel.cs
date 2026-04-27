@@ -10,6 +10,8 @@ public sealed class Agent
 {
     public string Type;
     public int X, Y;
+    /// <summary>与 <see cref="BuildingShapeCatalog"/> 中该代理映射功能类下 10 种预形对应，0..9。</summary>
+    public int BuildingPatternSlot;
 
     public Agent(string type, int x, int y)
     {
@@ -57,6 +59,9 @@ public sealed class CityModel
     public string SwapMode { get; set; } = "pareto";
     public string CurrentLayout { get; private set; } = "Grid";
     public string RoadTopology { get; set; } = Config.RoadTopologyNames[0];
+
+    /// <summary>为 true 时，RESET/初始代理仅从建筑四类 Resi/Firm/Shop/Cafe 中抽取（仅标准城市场景）。</summary>
+    public bool BuildingFourAgentMode { get; set; }
 
     public Dictionary<string, int> ReachAgentByType { get; } = new();
     public Dictionary<string, int> ReachAttrByType { get; } = new();
@@ -329,8 +334,88 @@ public sealed class CityModel
             Grid[a.X, a.Y] = a;
     }
 
+    /// <summary>与建筑格网功能对齐：酒店→居、餐→咖、诊→公；四基类不变。不含绿地 (P) 在代理层。</summary>
+    public static string MapStandardTypeToBuildingFour(string t) => t switch
+    {
+        "Resi" => "Resi",
+        "Firm" => "Firm",
+        "Shop" => "Shop",
+        "Cafe" => "Cafe",
+        "Hotel" => "Resi",
+        "Restaurant" => "Cafe",
+        "Clinic" => "Firm",
+        _ => "Resi"
+    };
+
+    /// <summary>与建筑场「黑白/配色」及主类型条一致，用于与 BuildingModel 对照显示。</summary>
+    public static string MapAgentTypeToBuildingFunctionKey(string t, bool useOriginalCitylab) =>
+        useOriginalCitylab
+            ? t switch
+            {
+                "residential" => "Resi",
+                "office" => "Firm",
+                "shop" => "Shop",
+                "cafe" => "Cafe",
+                _ => "Resi"
+            }
+            : MapStandardTypeToBuildingFour(t);
+
+    public void RemapAgentsToBuildingFunctionTypes()
+    {
+        foreach (var a in Agents)
+        {
+            if (UseOriginalCitylab)
+            {
+                a.Type = a.Type switch
+                {
+                    "residential" => "residential",
+                    "office" => "office",
+                    "shop" => "shop",
+                    "cafe" => "cafe",
+                    _ => "residential"
+                };
+            }
+            else
+            {
+                a.Type = MapStandardTypeToBuildingFour(a.Type);
+            }
+        }
+        UpdateGrid();
+        CalcTotalUtility();
+    }
+
+    /// <summary>切比雪夫邻域半径，用于 <see cref="ComputeCommercialDensityAt"/>。</summary>
+    public int CommercialDensityHoodRadius { get; set; } = 4;
+
+    /// <summary>
+    /// 商业密度 ∈ [0,1]：邻域内 Shop 代理占比（半权）与邻域内各代理 3×3 图案黑格数/9 的均值（半权）混合；后者将「小网格黑格」并入。
+    /// </summary>
+    public double ComputeCommercialDensityAt(int cx, int cy, Func<Agent, int> blackCellsInAgentPattern)
+    {
+        var hood = 0;
+        var shop = 0;
+        var blackSum = 0;
+        var r = CommercialDensityHoodRadius;
+        foreach (var o in Agents)
+        {
+            if (Math.Max(Math.Abs(o.X - cx), Math.Abs(o.Y - cy)) > r) continue;
+            hood++;
+            if (MapAgentTypeToBuildingFunctionKey(o.Type, UseOriginalCitylab) == "Shop")
+                shop++;
+            blackSum += blackCellsInAgentPattern(o);
+        }
+        if (hood == 0) return 0.0;
+        var shopPart = shop / (double)hood;
+        var blackPart = (blackSum / 9.0) / hood;
+        return 0.5 * shopPart + 0.5 * blackPart;
+    }
+
     private string RandomAgentType()
     {
+        if (BuildingFourAgentMode && !UseOriginalCitylab)
+        {
+            return BuildingModel.BuildingFunctionTypes[_rng.Next(BuildingModel.BuildingFunctionTypes.Length)];
+        }
         var r = _rng.NextDouble();
         if (UseOriginalCitylab)
         {
@@ -382,7 +467,11 @@ public sealed class CityModel
         {
             if (attrCells.Contains((x, y)))
                 continue;
-            Agents.Add(new Agent(RandomAgentType(), x, y));
+            var ag = new Agent(RandomAgentType(), x, y);
+            // 同类型也可因格点不同而初槽位不同
+            var s = x * 11 + y * 17 + _rng.Next(0, 1_000_000);
+            ag.BuildingPatternSlot = (s % BuildingShapeCatalog.PatternsPerMainType + BuildingShapeCatalog.PatternsPerMainType) % BuildingShapeCatalog.PatternsPerMainType;
+            Agents.Add(ag);
         }
         Stats.Steps = 0;
         Stats.Accepted = 0;

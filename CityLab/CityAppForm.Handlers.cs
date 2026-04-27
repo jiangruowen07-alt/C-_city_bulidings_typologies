@@ -22,6 +22,61 @@ public sealed partial class CityAppForm
         _ => t
     };
 
+    void OnRemapCityAgentsToBuildingTypes()
+    {
+        if (!_systemModeCity || _batchRunning) return;
+        M.RemapAgentsToBuildingFunctionTypes();
+        _resetTarget = (int)M.Stats.TotalUtility;
+        _utilHistory.Clear();
+        UpdateStats();
+        SampleChart(true);
+        _gridView?.Invalidate();
+    }
+
+    void OnRandomizeAllAgentBuildingPatterns()
+    {
+        if (!_systemModeCity || _batchRunning) return;
+        foreach (var a in M.Agents)
+            a.BuildingPatternSlot = Random.Shared.Next(0, BuildingShapeCatalog.PatternsPerMainType);
+        _gridView?.Invalidate();
+    }
+
+    void OnApplyPatternsByCommercialDensity()
+    {
+        if (!_systemModeCity || _batchRunning) return;
+        int BlackInPattern(Agent o)
+        {
+            var k0 = CityModel.MapAgentTypeToBuildingFunctionKey(o.Type, M.UseOriginalCitylab);
+            return BuildingShapeCatalog.GetBlackCountInPreset(k0, o.BuildingPatternSlot);
+        }
+        // 全体按商业密度排名：最高 → 该映射类下黑格数最多的预形；最低 → 黑格最少；中间按名次在 1..9 间线性分档
+        var rows = M.Agents
+            .Select(a => (a, rho: M.ComputeCommercialDensityAt(a.X, a.Y, BlackInPattern)))
+            .OrderByDescending(x => x.rho)
+            .ThenBy(x => x.a.X)
+            .ThenBy(x => x.a.Y)
+            .ToList();
+        var n = rows.Count;
+        for (var i = 0; i < n; i++)
+        {
+            var a = rows[i].a;
+            var bKey = CityModel.MapAgentTypeToBuildingFunctionKey(a.Type, M.UseOriginalCitylab);
+            var tie = unchecked(a.X * 73856093 ^ a.Y * 19349663);
+            if (n == 1 || i == 0)
+                a.BuildingPatternSlot = BuildingShapeCatalog.PickSlotWithMaxBlackCells(bKey, tie);
+            else if (i == n - 1)
+                a.BuildingPatternSlot = BuildingShapeCatalog.PickSlotWithMinBlackCells(bKey, tie);
+            else
+            {
+                var t = i / (double)(n - 1);
+                var k = 1 + (int)Math.Round(8.0 * (1.0 - t));
+                k = Math.Clamp(k, BuildingShapeCatalog.MinBlackCellsCommercialDisplay, BuildingShapeCatalog.MaxBlackCellsCommercialDisplay);
+                a.BuildingPatternSlot = BuildingShapeCatalog.PickSlotForTargetBlackCount(bKey, k, tie);
+            }
+        }
+        _gridView?.Invalidate();
+    }
+
     void SetSystemMode(bool city)
     {
         if (_systemModeCity == city) return;
@@ -50,6 +105,7 @@ public sealed partial class CityAppForm
         {
             Text = "CITY LAB — 建筑单元 (房间 / 空地)";
             B.CalcTotalUtility();
+            B.RefreshMainAgentType();
             _resetTarget = (int)B.Stats.TotalUtility;
         }
         SampleChart(true);
@@ -75,7 +131,7 @@ public sealed partial class CityAppForm
     void OnBuildingSizeChanged()
     {
         if (_batchRunning) return;
-        int[] ns = { 3, 4, 5, 6, 7, 8, 9, 10, 12, 16 };
+        int[] ns = { 3, 4, 5 };
         var idx = _buildingSizeCombo?.SelectedIndex ?? -1;
         if (idx < 0 || idx >= ns.Length) return;
         _configuring = true;
@@ -508,6 +564,25 @@ public sealed partial class CityAppForm
         _accL.Text = st.Accepted.ToString("N0", CultureInfo.InvariantCulture);
         _rejL.Text = st.Rejected.ToString("N0", CultureInfo.InvariantCulture);
         _sacL.Text = st.Sacrificed.ToString("N0", CultureInfo.InvariantCulture);
+        if (_buildingMainAgentLbl != null)
+        {
+            if (_systemModeCity)
+            {
+                _buildingMainAgentLbl.Text = "—";
+            }
+            else
+            {
+                var t = B.MainAgentType;
+                _buildingMainAgentLbl.Text = t == null
+                    ? "（无非绿地）"
+                    : $"主要：{BuildingTypeNameZh(t)}  ({t})";
+            }
+            _buildingMainAgentSwatch?.Invalidate();
+        }
+        if (_buildingBlackCellLbl != null)
+        {
+            _buildingBlackCellLbl.Text = _systemModeCity ? "—" : $"{B.CountBlackCellsBwView()} 格";
+        }
     }
 
     void SampleChart(bool force = false)

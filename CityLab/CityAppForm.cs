@@ -66,9 +66,14 @@ public sealed partial class CityAppForm : Form
     private FlowLayoutPanel _buildingPanel = null!;
     private ComboBox _buildingSizeCombo = null!;
     private Button _buildingBwBtn = null!;
+    private Label _buildingMainAgentLbl = null!;
+    private Panel _buildingMainAgentSwatch = null!;
+    private Label _buildingBlackCellLbl = null!;
     /// <summary>建筑模式：true 时黑=非绿地代理，白=绿地（与功能色对照）。</summary>
     private bool _buildingBwMode;
     private readonly List<Control> _cityOnlyControls = new();
+    private bool _cityBuildingAgentViz;
+    private CheckBox? _cbCityBldViz, _cbCityBldResetFour;
     private Font _fTitle = null!, _fSection = null!, _fCaption = null!, _fBody = null!, _fBtn = null!,
         _fRadio = null!, _fMxH = null!, _fMxC = null!, _fStV = null!, _fCh = null!, _fChD = null!, _fChDB = null!;
 
@@ -79,7 +84,7 @@ public sealed partial class CityAppForm : Form
         MinimumSize = new Size(1000, 700);
         Size = new Size(1280, 800);
         M = new CityModel(40, 40, 6);
-        B = new BuildingModel(8, 8);
+        B = new BuildingModel(3, 3);
         RefreshColorMap();
         RefreshPpRanks();
         _contribCache = new double[M.W, M.H];
@@ -172,6 +177,7 @@ public sealed partial class CityAppForm : Form
 
     private void Boot()
     {
+        _ = BuildingShapeCatalog.PresetPatternsByMainType.Count;
         SetLayoutBtnHi("Grid");
         SetRoadBtnHi(Config.RoadTopologyNames[0]);
         SetTool("None");
@@ -237,15 +243,7 @@ public sealed partial class CityAppForm : Form
                 }
             }
             foreach (var a in M.Agents)
-            {
-                var cx = a.X * s + s / 2f;
-                var cy = a.Y * s + s / 2f;
-                var r = s * 0.35f;
-                using var br = new SolidBrush(ColorForAgent(a.Type));
-                using var pen = new Pen(Color.White, 1f);
-                g.FillEllipse(br, cx - r, cy - r, 2 * r, 2 * r);
-                g.DrawEllipse(pen, cx - r, cy - r, 2 * r, 2 * r);
-            }
+                DrawCityAgentSymbol(g, a, s);
         }
         var gridCol = _colors["grid"];
         using (var p = new Pen(gridCol, 1f))
@@ -263,6 +261,49 @@ public sealed partial class CityAppForm : Form
         }
         if (_showReachOverlay && _hoverCx >= 0)
             DrawReachOverlayGdi(g, _hoverCx, _hoverCy, s, w, h);
+    }
+
+    /// <summary>城市代理：圆点，或 3×3 预存黑白形（映射功能类 + 每代理槽位 0..9；不依赖运行建筑场）。</summary>
+    internal void DrawCityAgentSymbol(Graphics g, Agent a, float s)
+    {
+        var bKey = CityModel.MapAgentTypeToBuildingFunctionKey(a.Type, M.UseOriginalCitylab);
+        var cx = a.X * s + s / 2f;
+        var cy = a.Y * s + s / 2f;
+        var r = s * 0.35f;
+        if (!_cityBuildingAgentViz)
+        {
+            using var br = new SolidBrush(ColorForAgent(a.Type));
+            using var pen = new Pen(Color.White, 1f);
+            g.FillEllipse(br, cx - r, cy - r, 2 * r, 2 * r);
+            g.DrawEllipse(pen, cx - r, cy - r, 2 * r, 2 * r);
+            return;
+        }
+        var mask = BuildingShapeCatalog.GetPresetPattern(bKey, a.BuildingPatternSlot);
+        DrawBlackWhite3x3InCell(g, a, s, mask);
+    }
+
+    void DrawBlackWhite3x3InCell(Graphics g, Agent a, float s, bool[,] mask)
+    {
+        var px = a.X * s;
+        var py = a.Y * s;
+        var sub = s / 3f;
+        using var bK = new SolidBrush(Color.Black);
+        using var bW = new SolidBrush(Color.White);
+        for (var u = 0; u < 3; u++)
+        {
+            for (var v = 0; v < 3; v++)
+            {
+                var isBlack = mask[u, v];
+                g.FillRectangle(
+                    isBlack ? bK : bW,
+                    px + u * sub,
+                    py + v * sub,
+                    sub + 0.5f,
+                    sub + 0.5f);
+            }
+        }
+        using (var pOut = new Pen(Color.Black, 1f))
+            g.DrawRectangle(pOut, px, py, s, s);
     }
 
     void PaintBuildingLattice(Graphics g)
@@ -419,6 +460,88 @@ public sealed partial class CityAppForm : Form
         modeRow.Controls.Add(_modeCityBtn, 0, 0);
         modeRow.Controls.Add(_modeBuildingBtn, 1, 0);
         _rightFlow.Controls.Add(modeRow);
+
+        var cityBldRow = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.TopDown,
+            AutoSize = true,
+            WrapContents = false,
+            Dock = DockStyle.Top,
+            Margin = new Padding(0, 0, 0, 10)
+        };
+        var btnBld4 = new Button
+        {
+            Text = "代理改为建筑四类 (功能映射)",
+            Font = _fBtn,
+            FlatStyle = FlatStyle.Flat,
+            AutoSize = false,
+            Height = 34,
+            Width = 468,
+            BackColor = Config.HexColor(Config.UiColors.BoxBg),
+            ForeColor = Color.White,
+            Margin = new Padding(0, 0, 0, 4)
+        };
+        btnBld4.Click += (_, _) => OnRemapCityAgentsToBuildingTypes();
+        cityBldRow.Controls.Add(btnBld4);
+        _cbCityBldViz = new CheckBox
+        {
+            Text = "3×3 预存形替圆 (四类各10种，按代理槽位；不需运行建筑场)",
+            Font = _fBody,
+            ForeColor = Color.FromArgb(0xd0, 0xd0, 0xd0),
+            BackColor = Config.HexColor(Config.UiColors.PanelBg),
+            AutoSize = true,
+            Margin = new Padding(0, 2, 0, 0)
+        };
+        _cbCityBldViz.CheckedChanged += (_, _) =>
+        {
+            _cityBuildingAgentViz = _cbCityBldViz!.Checked;
+            _gridView?.Invalidate();
+        };
+        cityBldRow.Controls.Add(_cbCityBldViz);
+        var btnRandPat = new Button
+        {
+            Text = "全部代理重随机 3×3 图案 (槽 0..9，一次性)",
+            Font = _fBtn,
+            FlatStyle = FlatStyle.Flat,
+            AutoSize = false,
+            Height = 32,
+            Width = 468,
+            BackColor = Config.HexColor(Config.UiColors.BoxBg),
+            ForeColor = Color.White,
+            Margin = new Padding(0, 4, 0, 0)
+        };
+        btnRandPat.Click += (_, _) => OnRandomizeAllAgentBuildingPatterns();
+        cityBldRow.Controls.Add(btnRandPat);
+        var btnDens = new Button
+        {
+            Text = "按商业密度赋 3×3 (全城排名：最高→黑格最多；最低→最少；中间插值 1..9)",
+            Font = _fBtn,
+            FlatStyle = FlatStyle.Flat,
+            AutoSize = false,
+            Height = 34,
+            Width = 468,
+            BackColor = Config.HexColor(Config.UiColors.BoxBg),
+            ForeColor = Color.White,
+            Margin = new Padding(0, 4, 0, 0)
+        };
+        btnDens.Click += (_, _) => OnApplyPatternsByCommercialDensity();
+        cityBldRow.Controls.Add(btnDens);
+        _cbCityBldResetFour = new CheckBox
+        {
+            Text = "RESET 时随机仅含建筑四类 (Resi/Firm/Shop/Cafe)",
+            Font = _fBody,
+            ForeColor = Color.FromArgb(0x90, 0x90, 0x90),
+            BackColor = Config.HexColor(Config.UiColors.PanelBg),
+            AutoSize = true,
+            Margin = new Padding(0, 2, 0, 0)
+        };
+        _cbCityBldResetFour.CheckedChanged += (_, _) =>
+        {
+            if (_cbCityBldResetFour != null)
+                M.BuildingFourAgentMode = _cbCityBldResetFour.Checked;
+        };
+        cityBldRow.Controls.Add(_cbCityBldResetFour);
+        AddCity(cityBldRow);
 
         void AddCity(Control c)
         {
@@ -577,9 +700,9 @@ public sealed partial class CityAppForm : Form
             Dock = DockStyle.Fill,
             FlatStyle = FlatStyle.Flat
         };
-        int[] bGridSizes = [3, 4, 5, 6, 7, 8, 9, 10, 12, 16];
+        int[] bGridSizes = [3, 4, 5];
         foreach (var n in bGridSizes) _buildingSizeCombo.Items.Add($"{n}×{n}");
-        _buildingSizeCombo.SelectedIndex = System.Array.IndexOf(bGridSizes, 8);
+        _buildingSizeCombo.SelectedIndex = System.Array.IndexOf(bGridSizes, 3);
         _buildingSizeCombo.SelectedIndexChanged += (_, _) => { if (!_configuring) OnBuildingSizeChanged(); };
         bsz.Controls.Add(_buildingSizeCombo, 1, 0);
         _buildingPanel.Controls.Add(bsz);
@@ -590,6 +713,41 @@ public sealed partial class CityAppForm : Form
         bLeg.Controls.Add(MakeColorLeg(ColorBuildingType("Shop"), "商店"));
         bLeg.Controls.Add(MakeColorLeg(ColorBuildingType(BuildingModel.Park), "绿地 (P)"));
         _buildingPanel.Controls.Add(bLeg);
+        _buildingPanel.Controls.Add(LblSub("主要代理子（非绿地中最多；同数随机；不含绿地）"));
+        var mainRow = new FlowLayoutPanel
+        { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 4) };
+        _buildingMainAgentSwatch = new Panel
+        { Width = 20, Height = 20, BackColor = Config.HexColor(Config.UiColors.BoxBg), Margin = new Padding(0, 0, 8, 0) };
+        _buildingMainAgentSwatch.Paint += (_, e) =>
+        {
+            var t = B.MainAgentType;
+            using var b = new SolidBrush(t == null ? Color.FromArgb(0x55, 0x55, 0x55) : ColorBuildingType(t));
+            e.Graphics.FillRectangle(b, 1, 1, 18, 18);
+            e.Graphics.DrawRectangle(Pens.Gray, 1, 1, 18, 18);
+        };
+        _buildingMainAgentLbl = new Label
+        {
+            Text = "—",
+            ForeColor = Color.FromArgb(0xe4, 0xe4, 0xe4),
+            AutoSize = true,
+            Font = _fBody,
+            BackColor = Config.HexColor(Config.UiColors.PanelBg),
+            Margin = new Padding(0, 1, 0, 0)
+        };
+        mainRow.Controls.Add(_buildingMainAgentSwatch);
+        mainRow.Controls.Add(_buildingMainAgentLbl);
+        _buildingPanel.Controls.Add(mainRow);
+        _buildingPanel.Controls.Add(LblSub("黑色格子（非绿地，与开「黑白视图」时黑格数相同）"));
+        _buildingBlackCellLbl = new Label
+        {
+            Text = "0 格",
+            ForeColor = Color.FromArgb(0xe4, 0xe4, 0xe4),
+            AutoSize = true,
+            Font = _fBody,
+            BackColor = Config.HexColor(Config.UiColors.PanelBg),
+            Margin = new Padding(0, 0, 0, 6)
+        };
+        _buildingPanel.Controls.Add(_buildingBlackCellLbl);
         _buildingBwBtn = new Button
         {
             Text = "黑白视图 (关)  开=黑非绿地 / 白绿地",

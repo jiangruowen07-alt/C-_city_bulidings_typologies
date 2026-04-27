@@ -10,10 +10,20 @@
 
 需安装 [.NET 8 SDK](https://dotnet.microsoft.com/download)。
 
+在仓库根目录（`city typologies`）**一条命令即可**（不要先 `cd CityLab` 再执行；若当前终端提示符已在 `...\CityLab>`，也**不要**再输入 `cd CityLab`，否则会变成错误的 `CityLab\CityLab` 路径）：
+
+```bash
+dotnet run --project CityLab/CityLab.csproj
+```
+
+或先进入子目录后运行：
+
 ```bash
 cd CityLab
 dotnet run
 ```
+
+在 Cursor / VS Code 中可直接 **F5** 调试，或使用菜单「运行与调试」选择 **CityLab**（使用仓库内 `.vscode` 配置，工作目录为项目目录，不依赖在终端里 `cd`）。
 
 或发布为可执行文件后运行 `CityLab.exe`。
 

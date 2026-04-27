@@ -1,0 +1,56 @@
+城市系统 / 3×3 预形与商业密度 — 改动记录
+============================================
+文件生成目的：集中记录与「城市代理替圆、建筑场预形、商业密度」相关的实现与迭代，便于以后对照代码与 README。
+
+一、总览
+--------
+- 城市代理可在格内用 3×3 黑白「预存形」替代原来的圆点；黑=非绿地语义，白=绿地；不依赖必须运行建筑模拟。
+- 预形在 BuildingShapeCatalog 中静态生成：自 512 种二值形中枚举 511 种非全白；对 Resi/Firm/Cafe/Shop 四类各用不同种子做 Fisher–Yates，各取 10 个互异形，并缓存每槽黑格数 PresetBlackCountsByMainType。
+- Agent.BuildingPatternSlot（0..9）选择各类 10 形之一。
+
+二、主要文件
+------------
+- CityLab/BuildingShapeCatalog.cs
+  预形库、GetPresetPattern、GetBlackCountInPreset、PickSlotForTargetBlackCount（多候选+tieBreaker 打散）、PickSlotWithMaxBlackCells、PickSlotWithMinBlackCells。
+- CityLab/CityModel.cs
+  MapStandardTypeToBuildingFour / MapAgentTypeToBuildingFunctionKey；RemapAgentsToBuildingFunctionTypes；BuildingFourAgentMode；
+  ComputeCommercialDensityAt（切比雪夫邻域、Shop 占比与邻域内图案黑/9 均值各半权）；CommercialDensityHoodRadius 默认 4；
+  ResetAgentsOnce 中初槽位带格点熵（x*11+y*17+随机）。
+- CityLab/CityAppForm.cs
+  DrawCityAgentSymbol、DrawBlackWhite3x3InCell；替圆时仅外框黑边，不画 3×3 内部线；城市区按钮与复选（建筑四类、3×3 替圆、全随机、按商业密度等）。
+- CityLab/CityAppForm.Handlers.cs
+  OnRemapCityAgentsToBuildingTypes、OnRandomizeAllAgentBuildingPatterns、OnApplyPatternsByCommercialDensity（见下节）。
+- CityLab/BuildingModel.cs
+  TryGetBlackWhiteMask3x3（3×3 场用；当前主流程以预形为主）。
+
+三、商业密度与赋形逻辑（终版要点）
+--------------------------------
+1) 每个代理的密度 ρ：邻域内 Shop 映射比例（半权）+ 邻域内各代理当前 3×3 黑格数/9 的均值（半权），ρ∈[0,1]。
+
+2) 按「全城排名」赋形（非按各代理绝对 ρ 直接映射到 1..9 格黑）：
+   - 全体代理先算 ρ，再按 ρ 降序；同 ρ 时按 (X,Y) 再排序。
+   - 排名第 1（全城最高密）：在该代理映射类下用 PickSlotWithMaxBlackCells（该类的 10 个形里黑格数最多者；并列用格点 hash 打散）。
+   - 排名最后 1 名：PickSlotWithMinBlackCells（黑格最少者）。
+   - 中间名次：t = i/(n−1)，k = 1 + round(8×(1−t)) 夹在 [1,9]，再 PickSlotForTargetBlackCount(bKey, k, tie)。
+
+3) 仅 1 个代理时按「最高密」处理，用黑格最多形。
+
+4) MinBlackCellsCommercialDisplay=1、Max=9 用于选槽时合法黑格范围。
+
+四、其他 UI/交互
+----------------
+- 「代理改为建筑四类 (功能映射)」：将标准城市场景代理压到 Resi/Firm/Shop/Cafe 映射；酒店→居、餐→咖、诊→公等。
+- 「全部代理重随机 3×3 图案」：逐代理独立随机槽 0..9。
+- 勾选 3×3 预存形替圆后，代理显示为 3×3 黑白，外描边黑色、无内部分隔线。
+
+五、与「建筑场」主程序
+----------------------
+- 建筑单元仍为独立 B 的模拟；预形不依赖 B 的 MainAgentType（当前城市替圆以目录+槽位为准）。
+- 若日后需再次与建筑 3×3 实时场强绑定，可在此文件追加一节说明接口（如 TryGetBlackWhiteMask3x3）。
+
+六、维护提示
+------------
+- 改黑格 1..9 与排名分档时，同步 OnApplyPatternsByCommercialDensity 与 BuildingShapeCatalog 常量/注释。
+- 若预形 10 个在某类中缺少高黑或低黑，极端名次可能与理论 9/1 有偏差，属预形表覆盖问题；可改 BuildPresetsTenPerType 使每类显式含多种黑格数。
+
+（文档随功能迭代可继续追加日期与条目。）

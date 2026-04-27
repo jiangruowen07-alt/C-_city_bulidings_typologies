@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CityLab",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/CityLab/bin/Debug/net8.0-windows/CityLab.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/CityLab",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    }
+  ]
+}
