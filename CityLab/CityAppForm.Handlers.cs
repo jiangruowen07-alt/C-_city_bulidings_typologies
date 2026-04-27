@@ -12,6 +12,88 @@ namespace CityLab;
 
 public sealed partial class CityAppForm
 {
+    static string BuildingTypeNameZh(string t) => t switch
+    {
+        "Resi" => "居民",
+        "Firm" => "公司",
+        "Cafe" => "咖啡店",
+        "Shop" => "商店",
+        "P" => "绿地",
+        _ => t
+    };
+
+    void SetSystemMode(bool city)
+    {
+        if (_systemModeCity == city) return;
+        _systemModeCity = city;
+        if (_modeCityBtn != null)
+        {
+            _modeCityBtn.BackColor = city ? Color.White : Config.HexColor(Config.UiColors.PanelBg);
+            _modeCityBtn.ForeColor = city ? Color.Black : Color.White;
+        }
+        if (_modeBuildingBtn != null)
+        {
+            _modeBuildingBtn.BackColor = !city ? Color.White : Config.HexColor(Config.UiColors.PanelBg);
+            _modeBuildingBtn.ForeColor = !city ? Color.Black : Color.White;
+        }
+        if (_buildingPanel != null) _buildingPanel.Visible = !city;
+        foreach (var c in _cityOnlyControls) c.Visible = city;
+        B.SwapMode = M.SwapMode;
+        _utilHistory.Clear();
+        if (city)
+        {
+            Text = "CITY LAB v1.5 - Public/Private (4 bins) + Cell Satisfaction";
+            M.CalcTotalUtility();
+            _resetTarget = (int)M.Stats.TotalUtility;
+        }
+        else
+        {
+            Text = "CITY LAB — 建筑单元 (房间 / 空地)";
+            B.CalcTotalUtility();
+            _resetTarget = (int)B.Stats.TotalUtility;
+        }
+        SampleChart(true);
+        ResizeGrid();
+        _gridView?.Invalidate();
+        UpdateStats();
+    }
+
+    void TogBuildingBwMode()
+    {
+        _buildingBwMode = !_buildingBwMode;
+        if (_buildingBwBtn != null)
+        {
+            _buildingBwBtn.BackColor = _buildingBwMode ? Color.White : Config.HexColor(Config.UiColors.PanelBg);
+            _buildingBwBtn.ForeColor = _buildingBwMode ? Color.Black : Color.White;
+            _buildingBwBtn.Text = _buildingBwMode
+                ? "黑白视图 (开)  黑=非绿地 · 白=绿地"
+                : "黑白视图 (关)  开=黑非绿地 / 白绿地";
+        }
+        _gridView?.Invalidate();
+    }
+
+    void OnBuildingSizeChanged()
+    {
+        if (_batchRunning) return;
+        int[] ns = { 3, 4, 5, 6, 7, 8, 9, 10, 12, 16 };
+        var idx = _buildingSizeCombo?.SelectedIndex ?? -1;
+        if (idx < 0 || idx >= ns.Length) return;
+        _configuring = true;
+        try
+        {
+            B.SetSize(ns[idx], ns[idx]);
+        }
+        finally { _configuring = false; }
+        B.UtilityBias = 0.0;
+        B.CalcTotalUtility();
+        _resetTarget = (int)B.Stats.TotalUtility;
+        _utilHistory.Clear();
+        ResizeGrid();
+        _gridView?.Invalidate();
+        UpdateStats();
+        SampleChart(true);
+    }
+
     internal void SetLayoutBtnHi(string name)
     {
         foreach (var b in _layoutBtnList)
@@ -420,18 +502,20 @@ public sealed partial class CityAppForm
 
     void UpdateStats()
     {
-        _iterL.Text = M.Stats.Steps.ToString("N0", CultureInfo.InvariantCulture);
-        _utilL.Text = ((int)M.Stats.TotalUtility).ToString("N0", CultureInfo.InvariantCulture);
-        _accL.Text = M.Stats.Accepted.ToString("N0", CultureInfo.InvariantCulture);
-        _rejL.Text = M.Stats.Rejected.ToString("N0", CultureInfo.InvariantCulture);
-        _sacL.Text = M.Stats.Sacrificed.ToString("N0", CultureInfo.InvariantCulture);
+        var st = _systemModeCity ? M.Stats : B.Stats;
+        _iterL.Text = st.Steps.ToString("N0", CultureInfo.InvariantCulture);
+        _utilL.Text = ((int)st.TotalUtility).ToString("N0", CultureInfo.InvariantCulture);
+        _accL.Text = st.Accepted.ToString("N0", CultureInfo.InvariantCulture);
+        _rejL.Text = st.Rejected.ToString("N0", CultureInfo.InvariantCulture);
+        _sacL.Text = st.Sacrificed.ToString("N0", CultureInfo.InvariantCulture);
     }
 
     void SampleChart(bool force = false)
     {
-        if (force || (M.Stats.Steps % 20 == 0))
+        var st = _systemModeCity ? M.Stats : B.Stats;
+        if (force || (st.Steps % 20 == 0))
         {
-            var v = M.Stats.TotalUtility;
+            var v = st.TotalUtility;
             if (force || _utilHistory.Count == 0 || Math.Abs(_utilHistory[^1] - v) > 1e-9) { _utilHistory.Add(v); if (_utilHistory.Count > ChartMax) _utilHistory.RemoveAt(0); }
             _chartPanel.Invalidate();
         }
@@ -469,8 +553,8 @@ public sealed partial class CityAppForm
 
     public void RebuildAll()
     {
-        M.RemoveAgentsOnAttractors();
-        if (_showView && _viewMode == "contrib") RebuildContribCache();
+        if (_systemModeCity) M.RemoveAgentsOnAttractors();
+        if (_systemModeCity && _showView && _viewMode == "contrib") RebuildContribCache();
         _gridView?.Invalidate();
         UpdateStats();
         SampleChart(true);

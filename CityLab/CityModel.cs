@@ -724,6 +724,8 @@ public sealed class CityModel
                 Attractors[roadKey].Add((x2, j));
             }
         }
+
+        RebuildAttrDistanceFields();
     }
 
     private void EnsureAllAttractorsPresent()

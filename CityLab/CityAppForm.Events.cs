@@ -36,9 +36,17 @@ public sealed partial class CityAppForm
         if (!_running || _batchRunning) return;
         var speed = _speedBar.Value;
         for (var i = 0; i < speed; i++)
-            M.Step();
-        if (M.Stats.Steps % 20 == 0) { M.CalcTotalUtility(); SampleChart(); }
-        if (_showView && _viewMode == "contrib" && (M.Stats.Steps % ContribInt == 0))
+        {
+            if (_systemModeCity) M.Step();
+            else B.Step();
+        }
+        var st = _systemModeCity ? M.Stats : B.Stats;
+        if (st.Steps % 20 == 0)
+        {
+            if (_systemModeCity) M.CalcTotalUtility(); else B.CalcTotalUtility();
+            SampleChart();
+        }
+        if (_systemModeCity && _showView && _viewMode == "contrib" && (M.Stats.Steps % ContribInt == 0))
             RebuildContribCache();
         UpdateStats();
         _gridView.Invalidate();
@@ -47,9 +55,15 @@ public sealed partial class CityAppForm
     void StepOnce()
     {
         if (_batchRunning) return;
-        M.Step();
-        if (M.Stats.Steps % 20 == 0) { M.CalcTotalUtility(); SampleChart(); }
-        if (_showView && _viewMode == "contrib" && (M.Stats.Steps % ContribInt == 0)) { RebuildContribCache(); }
+        if (_systemModeCity) M.Step();
+        else B.Step();
+        var st = _systemModeCity ? M.Stats : B.Stats;
+        if (st.Steps % 20 == 0)
+        {
+            if (_systemModeCity) M.CalcTotalUtility(); else B.CalcTotalUtility();
+            SampleChart();
+        }
+        if (_systemModeCity && _showView && _viewMode == "contrib" && (M.Stats.Steps % ContribInt == 0)) { RebuildContribCache(); }
         UpdateStats();
         _gridView.Invalidate();
     }
@@ -57,12 +71,24 @@ public sealed partial class CityAppForm
     void DoReset()
     {
         if (_batchRunning) return;
-        if (_resetTarget == null)
+        if (_systemModeCity)
         {
-            M.UtilityBias = 0.0; M.Reset(); M.CalcTotalUtility();
-            _resetTarget = (int)M.Stats.TotalUtility;
+            if (_resetTarget == null)
+            {
+                M.UtilityBias = 0.0; M.Reset(); M.CalcTotalUtility();
+                _resetTarget = (int)M.Stats.TotalUtility;
+            }
+            else M.Reset(_resetTarget);
         }
-        else M.Reset(_resetTarget);
+        else
+        {
+            if (_resetTarget == null)
+            {
+                B.UtilityBias = 0.0; B.Reset(); B.CalcTotalUtility();
+                _resetTarget = (int)B.Stats.TotalUtility;
+            }
+            else B.Reset(_resetTarget);
+        }
         _utilHistory.Clear();
         RebuildAll();
     }
@@ -70,15 +96,23 @@ public sealed partial class CityAppForm
     void DoClear()
     {
         if (_batchRunning) return;
-        M.UtilityBias = 0.0; M.Clear(); M.CalcTotalUtility();
-        _resetTarget = (int)M.Stats.TotalUtility;
+        if (_systemModeCity)
+        {
+            M.UtilityBias = 0.0; M.Clear(); M.CalcTotalUtility();
+            _resetTarget = (int)M.Stats.TotalUtility;
+        }
+        else
+        {
+            B.UtilityBias = 0.0; B.Clear(); B.CalcTotalUtility();
+            _resetTarget = (int)B.Stats.TotalUtility;
+        }
         _utilHistory.Clear();
         RebuildAll();
     }
 
     void SetLayout(string name)
     {
-        if (_batchRunning) return;
+        if (_batchRunning || !_systemModeCity) return;
         SetLayoutBtnHi(name);
         M.UtilityBias = 0.0; M.ApplyLayout(name); M.CalcTotalUtility();
         _resetTarget = (int)M.Stats.TotalUtility; _utilHistory.Clear();
@@ -88,10 +122,9 @@ public sealed partial class CityAppForm
 
     void SetRoad(string name)
     {
-        if (_batchRunning) return;
+        if (_batchRunning || !_systemModeCity) return;
         SetRoadBtnHi(name);
         M.UtilityBias = 0.0; M.ApplyRoadTopology(name);
-        M.RebuildAttrDistanceFields();
         M.Reset(_resetTarget);
         M.CalcTotalUtility();
         _resetTarget = (int)M.Stats.TotalUtility; _utilHistory.Clear();
@@ -126,7 +159,7 @@ public sealed partial class CityAppForm
 
     void TogOrig()
     {
-        if (_batchRunning) return;
+        if (_batchRunning || !_systemModeCity) return;
         if (M.UseOriginalCitylab) M.SwitchToStandard(); else M.SwitchToOriginalCitylab();
         RefreshColorMap(); RefreshPpRanks();
         RebuildToolButtons(); BuildLegend(); BuildMatrices();
@@ -157,17 +190,21 @@ public sealed partial class CityAppForm
         var chunk = Math.Min(BatchChunk, _batchRem);
         for (var i = 0; i < chunk; i++)
         {
-            var res = M.Step();
-            if (res.Swapped && _showView && _viewMode == "pubpriv")
+            var res = _systemModeCity ? M.Step() : B.Step();
+            if (_systemModeCity && res.Swapped && _showView && _viewMode == "pubpriv")
             {
                 if (res.Old1 != null) _batchDirty.Add(res.Old1.Value);
                 if (res.Old2 != null) _batchDirty.Add(res.Old2.Value);
             }
         }
         _batchRem -= chunk;
-        if (M.Stats.Steps % 20 == 0) M.CalcTotalUtility();
-        if (_showView && _viewMode == "contrib")
-            RebuildContribCache();
+        if (_systemModeCity)
+        {
+            if (M.Stats.Steps % 20 == 0) M.CalcTotalUtility();
+            if (_showView && _viewMode == "contrib")
+                RebuildContribCache();
+        }
+        else if (B.Stats.Steps % 20 == 0) B.CalcTotalUtility();
         UpdateStats(); SampleChart();
         _gridView.Invalidate();
         if (_batchRem > 0) _batchStatus.Text = $"{_batchRem} left";
@@ -181,8 +218,21 @@ public sealed partial class CityAppForm
     void OnGridMouse(object? s, MouseEventArgs e)
     {
         if (_batchRunning || e.Button != MouseButtons.Left) return;
-        if (_currentTool == "None") return;
         int x = (int)(e.X / _cell), y = (int)(e.Y / _cell);
+        if (!_systemModeCity)
+        {
+            if (x < 0 || y < 0 || x >= B.W || y >= B.H) return;
+            var a = B.Grid[x, y];
+            if (a == null) return;
+            a.Type = BuildingModel.NextTypeCyclic(a.Type);
+            B.UpdateGrid();
+            B.CalcTotalUtility();
+            _resetTarget = (int)B.Stats.TotalUtility;
+            UpdateStats(); SampleChart(true);
+            _gridView.Invalidate();
+            return;
+        }
+        if (_currentTool == "None") return;
         if (x < 0 || y < 0 || x >= M.W || y >= M.H) return;
         if (!M.Attractors.ContainsKey(_currentTool)) return;
         var pos = (x, y);
@@ -210,6 +260,12 @@ public sealed partial class CityAppForm
 
     void OnGridMove(object? s, MouseEventArgs e)
     {
+        if (!_systemModeCity)
+        {
+            _pendingMouseClient = e.Location;
+            if (!_hoverT.Enabled) _hoverT.Enabled = true;
+            return;
+        }
         if (!_showReachOverlay && !(_showView && _viewMode == "contrib")) return;
         _pendingMouseClient = e.Location;
         if (_hoverT.Enabled) return;
@@ -226,8 +282,23 @@ public sealed partial class CityAppForm
     void HoverDebounce(object? s, EventArgs e)
     {
         _hoverT.Enabled = false;
-        var e2 = new MouseEventArgs(MouseButtons.None, 0, _pendingMouseClient.X, _pendingMouseClient.Y, 0);
         int x = (int)(_pendingMouseClient.X / _cell), y = (int)(_pendingMouseClient.Y / _cell);
+        if (!_systemModeCity)
+        {
+            if (x < 0 || y < 0 || x >= B.W || y >= B.H) { _tip.Hide(_gridView); return; }
+            if (x == _hoverCx && y == _hoverCy) return;
+            _hoverCx = x; _hoverCy = y;
+            var a = B.Grid[x, y];
+            if (a != null)
+            {
+                var u = B.GetUtility(a, x, y);
+                var t = BuildingTypeNameZh(a.Type);
+                _tip.SetToolTip(_gridView, $"{t}  ·  邻接效用: {u:F1}");
+            }
+            else _tip.Hide(_gridView);
+            _gridView.Invalidate();
+            return;
+        }
         if (x < 0 || y < 0 || x >= M.W || y >= M.H) { OnGridLeave(); return; }
         if (x == _hoverCx && y == _hoverCy) return;
         _hoverCx = x; _hoverCy = y;
@@ -248,22 +319,73 @@ public sealed partial class CityAppForm
     void ExportPng()
     {
         if (_batchRunning) return;
-        if (_showView && _viewMode == "contrib") RebuildContribCache();
-        using var dlg = new SaveFileDialog { DefaultExt = "png", Filter = "PNG Image|*.png|All|*.*", FileName = "city_export.png" };
+        if (_systemModeCity && _showView && _viewMode == "contrib") RebuildContribCache();
+        using var dlg = new SaveFileDialog { DefaultExt = "png", Filter = "PNG Image|*.png|All|*.*", FileName = _systemModeCity ? "city_export.png" : "building_units.png" };
         if (dlg.ShowDialog() != DialogResult.OK) return;
         var cell = Math.Max(8, _cell);
-        var wpx = M.W * cell; var hpx = M.H * cell;
-        using var bmp = new Bitmap(wpx, hpx, PixelFormat.Format32bppArgb);
-        using (var g = Graphics.FromImage(bmp))
+        if (!_systemModeCity)
         {
-            g.Clear(Color.Black);
+            var wpxB = B.W * cell; var hpxB = B.H * cell;
+            using var bmp = new Bitmap(wpxB, hpxB, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.Clear(Color.Black);
+                if (_buildingBwMode)
+                {
+                    using var bN = new SolidBrush(Color.Black);
+                    using var bPk = new SolidBrush(Color.White);
+                    for (var x = 0; x < B.W; x++)
+                        for (var y = 0; y < B.H; y++)
+                        {
+                            var t = B.Grid[x, y]?.Type ?? BuildingModel.Park;
+                            g.FillRectangle(t == BuildingModel.Park ? bPk : bN, x * cell, y * cell, cell, cell);
+                        }
+                }
+                else
+                {
+                    using var bP = new SolidBrush(ColorBuildingType(BuildingModel.Park));
+                    using var bResi = new SolidBrush(ColorBuildingType("Resi"));
+                    using var bFirm = new SolidBrush(ColorBuildingType("Firm"));
+                    using var bCafe = new SolidBrush(ColorBuildingType("Cafe"));
+                    using var bShop = new SolidBrush(ColorBuildingType("Shop"));
+                    for (var x = 0; x < B.W; x++)
+                        for (var y = 0; y < B.H; y++)
+                        {
+                            var a = B.Grid[x, y];
+                            var t = a?.Type ?? BuildingModel.Park;
+                            var br = t switch
+                            {
+                                BuildingModel.Park => bP,
+                                "Resi" => bResi,
+                                "Firm" => bFirm,
+                                "Cafe" => bCafe,
+                                "Shop" => bShop,
+                                _ => bP
+                            };
+                            g.FillRectangle(br, x * cell, y * cell, cell, cell);
+                        }
+                }
+                using (var p = new Pen(Color.FromArgb(_buildingBwMode ? 0x55 : 0x2a, _buildingBwMode ? 0x55 : 0x2a, _buildingBwMode ? 0x55 : 0x2a), 1f))
+                {
+                    for (var i = 0; i <= B.W; i++) g.DrawLine(p, i * cell, 0, i * cell, hpxB);
+                    for (var j = 0; j <= B.H; j++) g.DrawLine(p, 0, j * cell, wpxB, j * cell);
+                }
+            }
+            try { bmp.Save(dlg.FileName, ImageFormat.Png); } catch (Exception ex) { MessageBox.Show(ex.Message, "Export Error"); }
+            return;
+        }
+        var wpx = M.W * cell; var hpx = M.H * cell;
+        using var bmp2 = new Bitmap(wpx, hpx, PixelFormat.Format32bppArgb);
+        using (var g2 = Graphics.FromImage(bmp2))
+        {
+            g2.Clear(Color.Black);
             if (_showView)
             {
                 for (var x = 0; x < M.W; x++)
                     for (var y = 0; y < M.H; y++)
                     {
                         using var br = new SolidBrush(ViewFillAt(x, y));
-                        g.FillRectangle(br, x * cell, y * cell, cell, cell);
+                        g2.FillRectangle(br, x * cell, y * cell, cell, cell);
                     }
             }
             else
@@ -274,24 +396,24 @@ public sealed partial class CityAppForm
                     using var br = new SolidBrush(ColorForKey(k));
                     foreach (var (ax, ay) in M.Attractors.GetValueOrDefault(k) ?? new List<(int, int)>())
                     {
-                        g.FillRectangle(br, ax * cell + 1, ay * cell + 1, cell - 2, cell - 2);
+                        g2.FillRectangle(br, ax * cell + 1, ay * cell + 1, cell - 2, cell - 2);
                     }
                 }
                 foreach (var a in M.Agents)
                 {
                     var cx = a.X * cell + cell / 2f; var cy = a.Y * cell + cell / 2f; var r = cell * 0.35f;
                     using var br = new SolidBrush(ColorForAgent(a.Type));
-                    g.FillEllipse(br, cx - r, cy - r, 2 * r, 2 * r);
-                    g.DrawEllipse(Pens.White, cx - r, cy - r, 2 * r, 2 * r);
+                    g2.FillEllipse(br, cx - r, cy - r, 2 * r, 2 * r);
+                    g2.DrawEllipse(Pens.White, cx - r, cy - r, 2 * r, 2 * r);
                 }
             }
             var gc = _colors["grid"];
             using (var p = new Pen(gc, 1f))
             {
-                for (var i = 0; i <= M.W; i++) g.DrawLine(p, i * cell, 0, i * cell, hpx);
-                for (var j = 0; j <= M.H; j++) g.DrawLine(p, 0, j * cell, wpx, j * cell);
+                for (var i = 0; i <= M.W; i++) g2.DrawLine(p, i * cell, 0, i * cell, hpx);
+                for (var j = 0; j <= M.H; j++) g2.DrawLine(p, 0, j * cell, wpx, j * cell);
             }
         }
-        try { bmp.Save(dlg.FileName, ImageFormat.Png); } catch (Exception ex) { MessageBox.Show(ex.Message, "Export Error"); }
+        try { bmp2.Save(dlg.FileName, ImageFormat.Png); } catch (Exception ex) { MessageBox.Show(ex.Message, "Export Error"); }
     }
 }
